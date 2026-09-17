@@ -4,12 +4,31 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
-import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-razorpay-signature",
 };
+
+async function verifyHmacSha256(rawBody: string, signature: string, secret: string): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signatureBuffer = await crypto.subtle.sign("HMAC", key, encoder.encode(rawBody));
+    const hashArray = Array.from(new Uint8Array(signatureBuffer));
+    const expectedSignature = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    return expectedSignature.toLowerCase() === signature.toLowerCase();
+  } catch (err) {
+    console.error("[verifyHmacSha256] Error verifying signature:", err);
+    return false;
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -23,8 +42,8 @@ serve(async (req) => {
 
     // Verify HMAC SHA256 Signature (in non-mock mode)
     if (!webhookSecret.includes("mock")) {
-      const expectedSignature = hmac("sha256", webhookSecret, rawBody, "utf8", "hex");
-      if (signature !== expectedSignature) {
+      const isValid = await verifyHmacSha256(rawBody, signature, webhookSecret);
+      if (!isValid) {
         return new Response(JSON.stringify({ error: "Invalid Razorpay Webhook signature" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
