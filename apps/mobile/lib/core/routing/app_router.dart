@@ -21,6 +21,8 @@ import '../../features/seller/presentation/add_product_screen.dart';
 import '../../features/seller/presentation/inventory_screen.dart';
 import '../../features/seller/presentation/seller_orders_screen.dart';
 import '../../features/delivery/presentation/delivery_home_screen.dart';
+import '../../features/delivery/presentation/active_trip_screen.dart';
+import '../../features/delivery/presentation/delivery_earnings_screen.dart';
 
 class FlavorNotifier extends Notifier<AppFlavor> {
   final AppFlavor _initial;
@@ -150,6 +152,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             isSellerView: isSellerView,
           );
         },
+      ),
+      // Delivery Fleet Routes
+      GoRoute(
+        path: '/delivery/trip/:id',
+        builder: (context, state) => ActiveTripScreen(
+          orderId: state.pathParameters['id'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/delivery/earnings',
+        builder: (context, state) => const DeliveryEarningsScreen(),
       ),
     ],
   );
