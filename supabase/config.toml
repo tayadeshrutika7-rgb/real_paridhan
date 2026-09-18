@@ -1,6 +1,6 @@
 # Supabase configuration for Paridhan
 
-project_id = "paridhan"
+project_id = "zuhwilxfukdrmnmhyibg"
 
 [api]
 enabled = true

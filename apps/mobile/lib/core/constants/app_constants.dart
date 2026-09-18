@@ -8,9 +8,9 @@ class AppConstants {
   static const String defaultCurrency = '₹';
   static const String currencyCode = 'INR';
   
-  // Supabase Config (Fallbacks / Local dev)
-  static const String defaultSupabaseUrl = 'https://mock-supabase.paridhan.local';
-  static const String defaultSupabaseAnonKey = 'mock-anon-key';
+  // Supabase Config (Live Cloud Project)
+  static const String defaultSupabaseUrl = 'https://zuhwilxfukdrmnmhyibg.supabase.co';
+  static const String defaultSupabaseAnonKey = 'sb_publishable_i2mNdTzAEUoWriHBoO90ag_9S56I2TI';
 
   // Deep linking scheme
   static const String deepLinkScheme = 'paridhan';
