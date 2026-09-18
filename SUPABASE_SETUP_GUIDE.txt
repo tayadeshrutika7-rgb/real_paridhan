@@ -718,34 +718,113 @@ on conflict (name) do nothing;
 ================================================================================
 5. SUPABASE EDGE FUNCTIONS DEPLOYMENT GUIDE
 ================================================================================
+5. SUPABASE EDGE FUNCTIONS DEPLOYMENT & VERIFICATION RUNBOOK
+================================================================================
 
-Paridhan utilizes 3 Deno Edge Functions located in `supabase/functions/`:
+Paridhan features 4 production Deno Edge Functions located in `supabase/functions/`:
 
 1. `create-razorpay-order`
-   - Purpose: Calculates 90% boutique payout & 10% platform commission, creates Razorpay Route split order.
-   - Command: `supabase functions deploy create-razorpay-order`
+   - Purpose: Calculates 90% boutique sub-account payout (transfer with `on_hold: 1`) & 10% platform commission, creates Razorpay Route split order.
+   - Command: `npx supabase functions deploy create-razorpay-order`
 
 2. `razorpay-webhook`
-   - Purpose: Validates HMAC SHA256 signature, marks order paid, decrements inventory stock.
-   - Command: `supabase functions deploy razorpay-webhook`
+   - Purpose: Validates HMAC-SHA256 signature natively with WebCrypto, updates order status to 'confirmed'/'paid', logs payment transaction, and decrements variant inventory.
+   - Command: `npx supabase functions deploy razorpay-webhook --no-verify-jwt`
 
 3. `expire-stale-bargains`
-   - Purpose: Scheduled cron to mark bargains past 24h as expired.
-   - Command: `supabase functions deploy expire-stale-bargains`
+   - Purpose: Scheduled hourly cron to transition bargains past 24 hours from 'open'/'countered' to 'expired'.
+   - Schedule: Configured in `supabase/config.toml` via `schedule = "0 * * * *"`
+   - Command: `npx supabase functions deploy expire-stale-bargains --no-verify-jwt`
 
-Required Secrets in Supabase (Set in Project Settings -> Edge Functions -> Secrets):
-- `RAZORPAY_KEY_ID`: Your Razorpay Key ID (e.g., rzp_test_...)
-- `RAZORPAY_KEY_SECRET`: Your Razorpay Secret
-- `RAZORPAY_WEBHOOK_SECRET`: Secret from Razorpay Dashboard Webhook settings
-- `SUPABASE_SERVICE_ROLE_KEY`: Secret service key for backend DB operations
+4. `send-push-notification`
+   - Purpose: Dispatches push notifications via OneSignal REST API to targeted user push player IDs and writes to the in-app `notifications` table.
+   - Command: `npx supabase functions deploy send-push-notification`
 
-================================================================================
+--------------------------------------------------------------------------------
+A. LINK REPOSITORY TO YOUR SUPABASE PROJECT
+--------------------------------------------------------------------------------
+Run the following in the project root:
+```bash
+# Login to Supabase CLI (if not already logged in)
+npx supabase login
+
+# Link your project (replace <PROJECT_REF> with your Supabase Project Reference ID)
+npx supabase link --project-ref <YOUR_PROJECT_REF>
+```
+
+--------------------------------------------------------------------------------
+B. CONFIGURE EDGE FUNCTION SECRETS
+--------------------------------------------------------------------------------
+Set the production secrets across all Edge Functions using the CLI or via Supabase Dashboard -> Project Settings -> Edge Functions -> Secrets:
+```bash
+npx supabase secrets set \
+  RAZORPAY_KEY_ID="rzp_test_..." \
+  RAZORPAY_KEY_SECRET="your_razorpay_secret" \
+  RAZORPAY_WEBHOOK_SECRET="your_webhook_signing_secret" \
+  ONESIGNAL_APP_ID="your_onesignal_app_id" \
+  ONESIGNAL_REST_API_KEY="your_onesignal_rest_api_key" \
+  SUPABASE_SERVICE_ROLE_KEY="your_supabase_service_role_key"
+```
+
+Verify secrets are active:
+```bash
+npx supabase secrets list
+```
+
+--------------------------------------------------------------------------------
+C. DEPLOY ALL 4 FUNCTIONS
+--------------------------------------------------------------------------------
+Deploy all functions in one batch:
+```bash
+npx supabase functions deploy create-razorpay-order
+npx supabase functions deploy razorpay-webhook --no-verify-jwt
+npx supabase functions deploy expire-stale-bargains --no-verify-jwt
+npx supabase functions deploy send-push-notification
+```
+
+Verify in Supabase Dashboard:
+Navigate to **Edge Functions** tab in your Supabase dashboard and confirm all 4 functions display with status `ACTIVE`.
+
+--------------------------------------------------------------------------------
+D. RAZORPAY WEBHOOK & ROUTE VERIFICATION
+--------------------------------------------------------------------------------
+1. Webhook URL:
+   `https://<YOUR_PROJECT_REF>.supabase.co/functions/v1/razorpay-webhook`
+2. Razorpay Dashboard Webhook Configuration:
+   - Events subscribed: `payment.captured`, `order.paid`, `payment.failed`, `transfer.processed`
+   - Secret: Must match `RAZORPAY_WEBHOOK_SECRET` set in Supabase secrets.
+3. Razorpay Route (90/10 Split):
+   - Boutiques link their Razorpay Route Account ID (`shops.razorpay_account_id`, e.g., `acc_xyz123`).
+   - `create-razorpay-order` calculates:
+       * Amount in paise = `subtotal * 100`
+       * Commission in paise = `amount * 0.10` (10% platform fee)
+       * Seller transfer = `amount - commission` (90% seller payout)
+       * Transfers array created with `on_hold: 1` (funds held until OTP delivery).
+
+--------------------------------------------------------------------------------
+E. ONESIGNAL PUSH NOTIFICATIONS & TOKEN REGISTRATION
+--------------------------------------------------------------------------------
+1. When users log in on the mobile app, `PushNotificationService` registers their device push token to `user_push_tokens` table.
+2. Triggering notification via Edge Function:
+   POST `https://<YOUR_PROJECT_REF>.supabase.co/functions/v1/send-push-notification`
+   Headers: `Authorization: Bearer <SUPABASE_ANON_KEY>`
+   Body:
+   ```json
+   {
+     "userId": "user-uuid",
+     "title": "Bargain Accepted! 🎉",
+     "body": "Seller accepted your offer of ₹1,200 for Anarkali Kurta.",
+     "data": { "type": "bargain", "bargainId": "bargain-uuid" }
+   }
+   ```
+
+===============================================================================
 6. ENVIRONMENT VARIABLES CONFIGURATION (.env)
 ================================================================================
 
 In your `apps/mobile/.env` file:
 ```env
-SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_URL=https://<YOUR_PROJECT_REF>.supabase.co
 SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 RAZORPAY_KEY_ID=rzp_test_...
 ONESIGNAL_APP_ID=your-onesignal-app-id
