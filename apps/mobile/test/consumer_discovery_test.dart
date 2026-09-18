@@ -64,7 +64,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       // Verify Product Detail screen
-      expect(find.text('Bargain Enabled'), findsOneWidget);
+      expect(find.text('Bargaining Available'), findsOneWidget);
       expect(find.text('Select Size'), findsOneWidget);
       expect(find.text('Add to Bag'), findsOneWidget);
       expect(find.text('Bargain'), findsOneWidget);
