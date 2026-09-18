@@ -23,6 +23,10 @@ import '../../features/seller/presentation/seller_orders_screen.dart';
 import '../../features/delivery/presentation/delivery_home_screen.dart';
 import '../../features/delivery/presentation/active_trip_screen.dart';
 import '../../features/delivery/presentation/delivery_earnings_screen.dart';
+import '../../features/admin/presentation/admin_dashboard_screen.dart';
+import '../../features/admin/presentation/admin_boutique_verification_screen.dart';
+import '../../features/admin/presentation/admin_analytics_screen.dart';
+import '../../features/admin/presentation/admin_disputes_screen.dart';
 
 class FlavorNotifier extends Notifier<AppFlavor> {
   final AppFlavor _initial;
@@ -55,7 +59,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
           final user = authState.user;
           final effectiveRole = user?.role ?? UserRole.consumer;
-          if (effectiveRole == UserRole.seller || currentFlavor == AppFlavor.seller) {
+          if (effectiveRole == UserRole.admin) {
+            return const AdminDashboardScreen();
+          } else if (effectiveRole == UserRole.seller || currentFlavor == AppFlavor.seller) {
             return const SellerHomeScreen();
           } else if (effectiveRole == UserRole.delivery || currentFlavor == AppFlavor.delivery) {
             return const DeliveryHomeScreen();
@@ -163,6 +169,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/delivery/earnings',
         builder: (context, state) => const DeliveryEarningsScreen(),
+      ),
+      // Super Admin Operations Routes
+      GoRoute(
+        path: '/admin',
+        builder: (context, state) => const AdminDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/admin/boutiques',
+        builder: (context, state) => const AdminBoutiqueVerificationScreen(),
+      ),
+      GoRoute(
+        path: '/admin/analytics',
+        builder: (context, state) => const AdminAnalyticsScreen(),
+      ),
+      GoRoute(
+        path: '/admin/disputes',
+        builder: (context, state) => const AdminDisputesScreen(),
       ),
     ],
   );
