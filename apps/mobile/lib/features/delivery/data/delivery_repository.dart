@@ -158,7 +158,7 @@ class DeliveryRepository {
     try {
       final response = await _client
           .from('deliveries')
-          .select('*, order:orders(*, shop:shops(*), delivery_address:addresses(*), order_items(*))')
+          .select('*, order:orders(*, shop:shops(*), order_items(*, product_variants(*, products(*))))')
           .eq('status', 'pending')
           .order('created_at', ascending: false)
           .limit(10);
@@ -167,8 +167,31 @@ class DeliveryRepository {
           .map((item) => DeliveryTaskModel.fromMap(item as Map<String, dynamic>))
           .toList();
 
-      return list.isNotEmpty ? list : _simulatedAvailableRequests;
-    } catch (_) {
+      if (list.isNotEmpty) {
+        return list;
+      }
+
+      // Check if there are orders placed without a delivery partner assigned yet
+      final ordersResponse = await _client
+          .from('orders')
+          .select('*, shop:shops(*), order_items(*, product_variants(*, products(*)))')
+          .isFilter('delivery_partner_id', null)
+          .inFilter('status', ['placed', 'confirmed', 'packed'])
+          .order('created_at', ascending: false)
+          .limit(10);
+
+      final orderList = (ordersResponse as List).map((o) {
+        final orderMap = o as Map<String, dynamic>;
+        return DeliveryTaskModel.fromMap({
+          'id': 'task-${orderMap['id']}',
+          'order_id': orderMap['id'],
+          'status': 'pending',
+          'order': orderMap,
+        });
+      }).toList();
+
+      return orderList.isNotEmpty ? orderList : _simulatedAvailableRequests;
+    } catch (e) {
       return _simulatedAvailableRequests;
     }
   }
@@ -182,14 +205,41 @@ class DeliveryRepository {
     try {
       final response = await _client
           .from('deliveries')
-          .select('*, order:orders(*, shop:shops(*), delivery_address:addresses(*), order_items(*))')
+          .select('*, order:orders(*, shop:shops(*), order_items(*, product_variants(*, products(*))))')
           .eq('delivery_partner_id', driverId)
           .inFilter('status', ['accepted', 'arrived_at_store', 'picked_up', 'out_for_delivery'])
+          .order('updated_at', ascending: false)
+          .limit(1)
           .maybeSingle();
 
       if (response != null) {
-        return DeliveryTaskModel.fromMap(response);
+        final task = DeliveryTaskModel.fromMap(response);
+        _simulatedActiveTrip = task;
+        return task;
       }
+
+      // Fallback: check orders assigned to driver
+      final orderRes = await _client
+          .from('orders')
+          .select('*, shop:shops(*), order_items(*, product_variants(*, products(*)))')
+          .eq('delivery_partner_id', driverId)
+          .inFilter('status', ['confirmed', 'packed', 'out_for_delivery'])
+          .order('updated_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (orderRes != null) {
+        final task = DeliveryTaskModel.fromMap({
+          'id': 'task-${orderRes['id']}',
+          'order_id': orderRes['id'],
+          'delivery_partner_id': driverId,
+          'status': orderRes['status'] == 'out_for_delivery' ? 'picked_up' : 'accepted',
+          'order': orderRes,
+        });
+        _simulatedActiveTrip = task;
+        return task;
+      }
+
       return _simulatedActiveTrip;
     } catch (_) {
       return _simulatedActiveTrip;
@@ -218,22 +268,31 @@ class DeliveryRepository {
 
     try {
       final now = DateTime.now().toIso8601String();
-      final updated = await _client
+      final cleanOrderId = taskId.startsWith('task-') ? taskId.replaceFirst('task-', '') : taskId;
+
+      // 1. Update order
+      await _client.from('orders').update({
+        'delivery_partner_id': driverId,
+        'updated_at': now,
+      }).eq('id', cleanOrderId);
+
+      // 2. Upsert delivery
+      final deliveryRow = await _client
           .from('deliveries')
-          .update({
+          .upsert({
+            'order_id': cleanOrderId,
             'delivery_partner_id': driverId,
             'status': 'accepted',
             'accepted_at': now,
             'updated_at': now,
           })
-          .eq('id', taskId)
-          .select('*, order:orders(*, shop:shops(*), delivery_address:addresses(*), order_items(*))')
+          .select('*, order:orders(*, shop:shops(*), order_items(*, product_variants(*, products(*))))')
           .single();
 
-      final model = DeliveryTaskModel.fromMap(updated);
+      final model = DeliveryTaskModel.fromMap(deliveryRow);
       _simulatedActiveTrip = model;
       return model;
-    } catch (_) {
+    } catch (e) {
       final task = _simulatedAvailableRequests.firstWhere(
         (t) => t.id == taskId,
         orElse: () => _simulatedAvailableRequests.first,
@@ -262,20 +321,27 @@ class DeliveryRepository {
 
     try {
       final now = DateTime.now().toIso8601String();
-      final updated = await _client
-          .from('deliveries')
-          .update({
-            'status': 'picked_up',
-            'picked_up_at': now,
-            'updated_at': now,
-          })
-          .eq('id', taskId)
-          .select('*, order:orders(*, shop:shops(*), delivery_address:addresses(*), order_items(*))')
-          .single();
+      final cleanOrderId = taskId.startsWith('task-') ? taskId.replaceFirst('task-', '') : taskId;
 
-      final model = DeliveryTaskModel.fromMap(updated);
-      _simulatedActiveTrip = model;
-      return model;
+      await _client.from('deliveries').update({
+        'status': 'picked_up',
+        'picked_up_at': now,
+        'updated_at': now,
+      }).or('id.eq.$taskId,order_id.eq.$cleanOrderId');
+
+      await _client.from('orders').update({
+        'status': 'out_for_delivery',
+        'updated_at': now,
+      }).eq('id', cleanOrderId);
+
+      if (_simulatedActiveTrip != null) {
+        _simulatedActiveTrip = _simulatedActiveTrip!.copyWith(
+          status: DeliveryTaskStatus.pickedUp,
+          pickedUpAt: DateTime.now(),
+        );
+        return _simulatedActiveTrip;
+      }
+      return null;
     } catch (_) {
       if (_simulatedActiveTrip != null) {
         _simulatedActiveTrip = _simulatedActiveTrip!.copyWith(

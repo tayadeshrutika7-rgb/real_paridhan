@@ -55,11 +55,10 @@ class OrderState {
 }
 
 class OrderController extends Notifier<OrderState> {
-  late final OrderRepository _repository;
+  final OrderRepository _repository = OrderRepository();
 
   @override
   OrderState build() {
-    _repository = OrderRepository();
     return const OrderState();
   }
 

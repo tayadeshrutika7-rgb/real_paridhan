@@ -41,11 +41,10 @@ class SellerState {
 }
 
 class SellerController extends Notifier<SellerState> {
-  late final SellerRepository _repository;
+  final SellerRepository _repository = SellerRepository();
 
   @override
   SellerState build() {
-    _repository = SellerRepository();
     final authState = ref.watch(authProvider);
     final sellerId = authState.user?.id ?? 'mock-user-123';
     

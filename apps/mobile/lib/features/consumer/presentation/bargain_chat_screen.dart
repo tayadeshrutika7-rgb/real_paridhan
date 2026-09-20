@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../domain/bargain_model.dart';
 import 'bargain_controller.dart';
+import 'cart_controller.dart';
 
 /// Consumer-facing bargain chat screen.
 /// Shows the real-time negotiation thread and controls for accepting / re-offering.
@@ -153,7 +154,11 @@ class _BargainChatScreenState extends ConsumerState<BargainChatScreen> {
                       ),
 
                     // Terminal state footer
-                    if (bargain.isTerminal) _TerminalBanner(bargain: bargain),
+                    if (bargain.isTerminal)
+                      _TerminalBanner(
+                        bargain: bargain,
+                        isSellerView: widget.isSellerView,
+                      ),
                   ],
                 ),
     );
@@ -581,12 +586,13 @@ class _BottomActionBar extends StatelessWidget {
   }
 }
 
-class _TerminalBanner extends StatelessWidget {
+class _TerminalBanner extends ConsumerWidget {
   final Bargain bargain;
-  const _TerminalBanner({required this.bargain});
+  final bool isSellerView;
+  const _TerminalBanner({required this.bargain, this.isSellerView = false});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     Color color;
     String message;
     IconData icon;
@@ -594,7 +600,7 @@ class _TerminalBanner extends StatelessWidget {
     switch (bargain.status) {
       case BargainStatus.accepted:
         color = Colors.green.shade600;
-        message = 'Deal at ₹${bargain.agreedPrice?.toStringAsFixed(0) ?? '—'} — Added to cart!';
+        message = 'Deal accepted at ₹${bargain.agreedPrice?.toStringAsFixed(0) ?? '—'}!';
         icon = Icons.check_circle_outline;
         break;
       case BargainStatus.rejected:
@@ -614,12 +620,38 @@ class _TerminalBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
       color: color.withValues(alpha: 0.1),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 8),
-          Text(message, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(message, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 15)),
+            ],
+          ),
+          if (bargain.status == BargainStatus.accepted && !isSellerView) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.shopping_bag_outlined),
+                label: Text('View Shopping Bag (₹${bargain.agreedPrice?.toStringAsFixed(0) ?? ''})'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: () async {
+                  await ref.read(cartProvider.notifier).loadCart();
+                  if (context.mounted) {
+                    context.push('/cart');
+                  }
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -366,18 +366,25 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  item.imageUrl,
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => Container(
-                                    width: 50,
-                                    height: 50,
-                                    color: Colors.grey.shade200,
-                                    child: const Icon(Icons.checkroom),
-                                  ),
-                                ),
+                                child: item.imageUrl.isNotEmpty
+                                    ? Image.network(
+                                        item.imageUrl,
+                                        width: 50,
+                                        height: 50,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) => Container(
+                                          width: 50,
+                                          height: 50,
+                                          color: Colors.grey.shade200,
+                                          child: const Icon(Icons.checkroom),
+                                        ),
+                                      )
+                                    : Container(
+                                        width: 50,
+                                        height: 50,
+                                        color: Colors.grey.shade200,
+                                        child: const Icon(Icons.checkroom),
+                                      ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(

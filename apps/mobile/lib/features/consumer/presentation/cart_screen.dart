@@ -52,20 +52,23 @@ class CartScreen extends ConsumerWidget {
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Product Thumbnail
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      width: 80,
-                                      height: 90,
-                                      color: Colors.grey.shade100,
-                                      child: Image.network(
-                                        item.imageUrl,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.checkroom, color: AppTheme.textMuted),
+                                    // Product Thumbnail
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Container(
+                                        width: 80,
+                                        height: 90,
+                                        color: Colors.grey.shade100,
+                                        child: item.imageUrl.isNotEmpty
+                                            ? Image.network(
+                                                item.imageUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) =>
+                                                    const Icon(Icons.checkroom, color: AppTheme.textMuted),
+                                              )
+                                            : const Icon(Icons.checkroom, color: AppTheme.textMuted),
                                       ),
                                     ),
-                                  ),
                                   const SizedBox(width: 12),
 
                                   // Details & Stepper
@@ -73,11 +76,35 @@ class CartScreen extends ConsumerWidget {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          item.productTitle,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                item.productTitle,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              icon: Icon(Icons.delete_outline, size: 20, color: Colors.red.shade400),
+                                              tooltip: 'Remove from Bag',
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(),
+                                              onPressed: () async {
+                                                await ref.read(cartProvider.notifier).removeItem(item.id);
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text('Removed "${item.productTitle}" from bag'),
+                                                      duration: const Duration(seconds: 2),
+                                                    ),
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ],
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
@@ -117,7 +144,11 @@ class CartScreen extends ConsumerWidget {
                                             Row(
                                               children: [
                                                 IconButton(
-                                                  icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                                  icon: Icon(
+                                                    item.quantity <= 1 ? Icons.delete_outline : Icons.remove_circle_outline,
+                                                    size: 20,
+                                                    color: item.quantity <= 1 ? Colors.red.shade400 : null,
+                                                  ),
                                                   onPressed: () {
                                                     ref.read(cartProvider.notifier).updateQuantity(item.id, item.quantity - 1);
                                                   },

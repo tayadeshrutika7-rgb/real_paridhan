@@ -45,11 +45,10 @@ class ConsumerDiscoveryState {
 }
 
 class ConsumerController extends Notifier<ConsumerDiscoveryState> {
-  late final ConsumerRepository _repository;
+  final ConsumerRepository _repository = ConsumerRepository();
 
   @override
   ConsumerDiscoveryState build() {
-    _repository = ConsumerRepository();
     // Schedule discovery loading
     Future.microtask(() => loadDiscovery());
     return const ConsumerDiscoveryState(isLoading: true);

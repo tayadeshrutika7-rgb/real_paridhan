@@ -263,7 +263,7 @@ class ConsumerRepository {
     try {
       final res = await client
           .from('products')
-          .select('*, product_variants(*)')
+          .select('*, product_variants(*), shops(id, name, seller_id)')
           .eq('id', productId)
           .maybeSingle();
 
@@ -301,6 +301,9 @@ class ConsumerRepository {
             id,
             title,
             base_price,
+            product_images (
+              url
+            ),
             shops (
               id,
               name
@@ -310,26 +313,36 @@ class ConsumerRepository {
       ''').eq('consumer_id', consumerId);
 
       return (res as List<dynamic>).map((item) {
-        final variant = item['product_variants'] as Map<String, dynamic>;
-        final product = variant['products'] as Map<String, dynamic>;
-        final shop = product['shops'] as Map<String, dynamic>;
-        final images = (variant['image_urls'] as List<dynamic>?) ?? [];
+        final variant = item['product_variants'] as Map<String, dynamic>? ?? {};
+        final product = variant['products'] as Map<String, dynamic>? ?? {};
+        final shop = product['shops'] as Map<String, dynamic>? ?? {};
+        final variantImages = (variant['image_urls'] as List<dynamic>?) ?? [];
+        final prodImages = (product['product_images'] as List<dynamic>?) ?? [];
+
+        String imgUrl = '';
+        if (variantImages.isNotEmpty && variantImages.first is String && (variantImages.first as String).isNotEmpty) {
+          imgUrl = variantImages.first as String;
+        } else if (prodImages.isNotEmpty && prodImages.first is Map && (prodImages.first['url'] as String?)?.isNotEmpty == true) {
+          imgUrl = prodImages.first['url'] as String;
+        } else {
+          imgUrl = 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=400';
+        }
 
         return CartItemModel(
           id: item['id'] as String,
           consumerId: item['consumer_id'] as String,
           variantId: item['variant_id'] as String,
-          productId: product['id'] as String,
-          productTitle: product['title'] as String,
-          size: variant['size'] as String,
-          color: variant['color'] as String,
-          quantity: item['quantity'] as int,
-          imageUrl: images.isNotEmpty ? images.first as String : '',
+          productId: product['id'] as String? ?? '',
+          productTitle: product['title'] as String? ?? 'Fashion Garment',
+          size: variant['size'] as String? ?? 'Standard',
+          color: variant['color'] as String? ?? 'Classic',
+          quantity: item['quantity'] as int? ?? 1,
+          imageUrl: imgUrl,
           unitPrice: (variant['price_override'] as num?)?.toDouble() ??
-              (product['base_price'] as num).toDouble(),
+              (product['base_price'] as num?)?.toDouble() ?? 0.0,
           agreedPrice: (item['agreed_price'] as num?)?.toDouble(),
-          shopId: shop['id'] as String,
-          shopName: shop['name'] as String,
+          shopId: shop['id'] as String? ?? '',
+          shopName: shop['name'] as String? ?? 'Local Boutique',
         );
       }).toList();
     } catch (e) {
@@ -377,12 +390,36 @@ class ConsumerRepository {
     }
 
     try {
-      await client.from('cart_items').upsert({
+      double? finalAgreedPrice = agreedPrice;
+      if (finalAgreedPrice == null) {
+        try {
+          final existingBargain = await client
+              .from('bargains')
+              .select('agreed_price')
+              .eq('consumer_id', consumerId)
+              .eq('variant_id', variant.id)
+              .eq('status', 'accepted')
+              .order('updated_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+
+          if (existingBargain != null && existingBargain['agreed_price'] != null) {
+            finalAgreedPrice = (existingBargain['agreed_price'] as num).toDouble();
+          }
+        } catch (_) {}
+      }
+
+      final upsertData = <String, dynamic>{
         'consumer_id': consumerId,
+        'product_id': product.id,
         'variant_id': variant.id,
         'quantity': quantity,
-        'agreed_price': agreedPrice,
-      }, onConflict: 'consumer_id,variant_id');
+      };
+      if (finalAgreedPrice != null) {
+        upsertData['agreed_price'] = finalAgreedPrice;
+      }
+
+      await client.from('cart_items').upsert(upsertData, onConflict: 'consumer_id,variant_id');
       return true;
     } catch (e) {
       debugPrint('[ConsumerRepository] Error adding to cart: $e');
@@ -413,6 +450,22 @@ class ConsumerRepository {
       return true;
     } catch (e) {
       debugPrint('[ConsumerRepository] Error updating cart qty: $e');
+      return false;
+    }
+  }
+
+  Future<bool> removeItem(String cartItemId) async {
+    final client = SupabaseService.client;
+    if (client == null) {
+      _mockCart.removeWhere((c) => c.id == cartItemId);
+      return true;
+    }
+
+    try {
+      await client.from('cart_items').delete().eq('id', cartItemId);
+      return true;
+    } catch (e) {
+      debugPrint('[ConsumerRepository] Error removing cart item: $e');
       return false;
     }
   }

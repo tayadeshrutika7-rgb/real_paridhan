@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
@@ -479,26 +480,33 @@ class BargainNotifier extends Notifier<BargainState> {
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', bargainId);
 
-      // 3. Upsert into cart_items with special agreed price and 24hr reservation lock
+      // 3. Upsert into cart_items with special agreed price
       final active = state.activeBargain;
       if (active != null) {
-        await db.from('cart_items').upsert({
-          'consumer_id': active.consumerId,
-          'product_id': active.productId,
-          'variant_id': active.variantId,
-          'quantity': 1,
-          'bargain_id': bargainId,
-          'agreed_price': agreedPrice,
-          'reserved_until':
-              DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
-        });
+        try {
+          await db.from('cart_items').upsert({
+            'consumer_id': active.consumerId,
+            'product_id': active.productId,
+            'variant_id': active.variantId,
+            'bargain_id': bargainId,
+            'quantity': 1,
+            'agreed_price': agreedPrice,
+          }, onConflict: 'consumer_id,variant_id');
+        } catch (cartErr) {
+          debugPrint('[BargainController] Cart upsert note: $cartErr');
+        }
       }
 
       state = state.copyWith(
         isLoading: false,
-        successMessage: 'Deal accepted! Added to your cart.',
+        activeBargain: active?.copyWith(
+          status: BargainStatus.accepted,
+          agreedPrice: agreedPrice,
+        ),
+        successMessage: 'Deal accepted! Item is ready in cart at ₹${agreedPrice.toStringAsFixed(0)}.',
       );
     } catch (e) {
+      debugPrint('[BargainController] acceptBargain error: $e');
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
   }
@@ -569,9 +577,9 @@ class BargainNotifier extends Notifier<BargainState> {
         return Bargain(
           id: m['id'] as String,
           consumerId: m['consumer_id'] as String,
-          sellerId: m['seller_id'] as String,
+          sellerId: m['seller_id'] as String? ?? '',
           productId: m['product_id'] as String,
-          variantId: m['variant_id'] as String,
+          variantId: m['variant_id'] as String? ?? '',
           status: BargainStatus.values.firstWhere(
             (e) => e.name == m['status'],
             orElse: () => BargainStatus.open,
@@ -591,6 +599,7 @@ class BargainNotifier extends Notifier<BargainState> {
 
       state = state.copyWith(consumerBargains: bargains, isLoading: false);
     } catch (e) {
+      debugPrint('[BargainNotifier] loadConsumerBargains error: $e');
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
   }
@@ -623,9 +632,9 @@ class BargainNotifier extends Notifier<BargainState> {
         return Bargain(
           id: m['id'] as String,
           consumerId: m['consumer_id'] as String,
-          sellerId: m['seller_id'] as String,
+          sellerId: m['seller_id'] as String? ?? '',
           productId: m['product_id'] as String,
-          variantId: m['variant_id'] as String,
+          variantId: m['variant_id'] as String? ?? '',
           status: BargainStatus.values.firstWhere(
             (e) => e.name == m['status'],
             orElse: () => BargainStatus.open,
@@ -645,6 +654,7 @@ class BargainNotifier extends Notifier<BargainState> {
 
       state = state.copyWith(sellerBargains: bargains, isLoading: false);
     } catch (e) {
+      debugPrint('[BargainNotifier] loadSellerBargains error: $e');
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
   }

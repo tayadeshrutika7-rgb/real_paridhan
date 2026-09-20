@@ -222,9 +222,21 @@ class OrderRepository {
         'bargain_id': c.bargainId,
       }).toList();
 
-      await client.from('order_items').insert(itemsToInsert);
+      // 3. Create dispatch request in deliveries table
+      try {
+        await client.from('deliveries').insert({
+          'order_id': orderId,
+          'status': 'pending',
+          'pickup_otp': (1000 + (orderId.hashCode.abs() % 9000)).toString(),
+          'delivery_otp': randomOtp,
+          'delivery_payout': deliveryFee > 0 ? (deliveryFee * 1.5) : 85.0,
+          'distance_km': 2.4,
+        });
+      } catch (delErr) {
+        debugPrint('[OrderRepository] Deliveries creation note: $delErr');
+      }
 
-      // 3. Clear cart
+      // 4. Clear cart
       await client.from('cart_items').delete().eq('consumer_id', consumerId);
 
       return newOrder.copyWith(id: orderId);

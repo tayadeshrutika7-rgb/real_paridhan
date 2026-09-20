@@ -35,22 +35,22 @@ class CartState {
 }
 
 class CartController extends Notifier<CartState> {
-  late final ConsumerRepository _repository;
+  final ConsumerRepository _repository = ConsumerRepository();
 
   @override
   CartState build() {
-    _repository = ConsumerRepository();
-    Future.microtask(() => loadCart());
+    final authState = ref.watch(authProvider);
+    final userId = authState.user?.id ?? 'guest-consumer';
+    Future.microtask(() => loadCart(userId: userId));
     return const CartState(isLoading: true);
   }
 
-  Future<void> loadCart() async {
-    final authState = ref.read(authProvider);
-    final userId = authState.user?.id ?? 'guest-consumer';
+  Future<void> loadCart({String? userId}) async {
+    final effectiveUserId = userId ?? ref.read(authProvider).user?.id ?? 'guest-consumer';
 
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final items = await _repository.getCart(userId);
+      final items = await _repository.getCart(effectiveUserId);
       state = state.copyWith(isLoading: false, items: items);
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: 'Failed to load cart: $e');
@@ -82,6 +82,11 @@ class CartController extends Notifier<CartState> {
 
   Future<void> updateQuantity(String cartItemId, int newQty) async {
     await _repository.updateCartQty(cartItemId, newQty);
+    await loadCart();
+  }
+
+  Future<void> removeItem(String cartItemId) async {
+    await _repository.removeItem(cartItemId);
     await loadCart();
   }
 
