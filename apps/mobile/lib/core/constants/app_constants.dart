@@ -9,8 +9,8 @@ class AppConstants {
   static const String currencyCode = 'INR';
   
   // Supabase Config (Live Cloud Project)
-  static const String defaultSupabaseUrl = 'https://zuhwilxfukdrmnmhyibg.supabase.co';
-  static const String defaultSupabaseAnonKey = 'sb_publishable_i2mNdTzAEUoWriHBoO90ag_9S56I2TI';
+  static const String defaultSupabaseUrl = 'https://faqtswmhgintutwvnkyy.supabase.co';
+  static const String defaultSupabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhcXRzd21oZ2ludHV0d3Zua3l5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0NjI0NTMsImV4cCI6MjEwMjAzODQ1M30.nr2puO_hmsJoqyEBVefABmNMqv6ENBb6QDUPF0BlNn8';
 
   // Deep linking scheme
   static const String deepLinkScheme = 'paridhan';

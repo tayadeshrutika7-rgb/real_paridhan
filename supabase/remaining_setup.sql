@@ -1,132 +1,39 @@
 -- ==============================================================================
--- PARIDHAN HYPERLOCAL FASHION MARKETPLACE — COMPLETE DATABASE SETUP SCRIPT
+-- PARIDHAN HYPERLOCAL FASHION MARKETPLACE — REMAINING POST-TABLE DATABASE SETUP
 -- ==============================================================================
 -- Instructions:
--- 1. Open your Supabase Project Dashboard (https://supabase.com/dashboard)
--- 2. Navigate to "SQL Editor" -> Click "New Query"
--- 3. Paste this ENTIRE file into the SQL Editor and click "RUN"
--- 4. Copy your Supabase Project URL and anon key from "Project Settings -> API"
---    and put them in your Flutter app and Backend .env files.
+-- Paste and run this script in your Supabase SQL Editor:
+-- https://supabase.com/dashboard/project/faqtswmhgintutwvnkyy/sql/new
 --
--- Default Test Accounts Created (All passwords matching their email or 'password123'):
---   • Buyer:    buyer1@gm.com       / password: buyer1@gm.com
---   • Seller:   seller3@gm.com      / password: seller3@gm.com
---   • Rider:    delivery1@gm.com    / password: delivery1@gm.com
---   • Admin:    admin@paridhan.com  / password: password123
+-- This script DOES NOT touch or drop any of the 22 existing application tables.
+-- It applies: Indexes, Helper Functions, PostGIS RPCs, Auth Triggers,
+-- Bargain Triggers, RLS Policies, PostgREST Grants, and Full Seed Data.
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 0. CLEANUP OLD / UNUSED APPLICATION SCHEMA TABLES (Idempotent)
+-- 1. REQUIRED INDEXES (GIST, GIN, B-TREE)
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS 
-  public.carts,
-  public.wishlist,
-  public.bargaining_offers,
-  public.bargaining_sessions,
-  public.bargaining_prices,
-  public.offers,
-  public.shop_images,
-  public.shop_addresses,
-  public.shop_timings,
-  public.shop_categories,
-  public.delivery_partners,
-  public.sellers,
-  public.inventory,
-  public.addresses,
-  public.subcategories,
-  public.deliveries,
-  public.order_items,
-  public.orders,
-  public.cart_items,
-  public.wishlists,
-  public.bargain_messages,
-  public.bargains,
-  public.product_images,
-  public.product_variants,
-  public.products,
-  public.reviews,
-  public.brands,
-  public.shops,
-  public.categories,
-  public.delivery_partner_profiles,
-  public.push_subscriptions,
-  public.returns_refunds,
-  public.payouts,
-  public.cod_remittance,
-  public.notifications,
-  public.platform_config,
-  public.profiles 
-CASCADE;
+CREATE INDEX IF NOT EXISTS idx_shops_location ON public.shops USING gist(location);
+CREATE INDEX IF NOT EXISTS idx_shops_seller ON public.shops(seller_id);
+CREATE INDEX IF NOT EXISTS idx_products_shop ON public.products(shop_id);
+CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
+CREATE INDEX IF NOT EXISTS idx_products_search ON public.products USING gin(search_vector);
+CREATE INDEX IF NOT EXISTS idx_variants_product ON public.product_variants(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_images_product ON public.product_images(product_id);
+CREATE INDEX IF NOT EXISTS idx_bargains_consumer ON public.bargains(consumer_id);
+CREATE INDEX IF NOT EXISTS idx_bargains_seller ON public.bargains(seller_id);
+CREATE INDEX IF NOT EXISTS idx_bargains_product ON public.bargains(product_id);
+CREATE INDEX IF NOT EXISTS idx_bargain_messages_bargain ON public.bargain_messages(bargain_id);
+CREATE INDEX IF NOT EXISTS idx_cart_items_consumer ON public.cart_items(consumer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_consumer ON public.orders(consumer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_shop ON public.orders(shop_id);
+CREATE INDEX IF NOT EXISTS idx_orders_delivery_partner ON public.orders(delivery_partner_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON public.order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_order ON public.deliveries(order_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_partner ON public.deliveries(delivery_partner_id);
 
 -- ------------------------------------------------------------------------------
--- 1. EXTENSIONS
--- ------------------------------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS postgis;
-
--- ------------------------------------------------------------------------------
--- 2. CUSTOM ENUMS (Safely created if not exists)
--- ------------------------------------------------------------------------------
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
-    CREATE TYPE user_role AS ENUM ('consumer', 'seller', 'delivery', 'admin');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'push_platform') THEN
-    CREATE TYPE push_platform AS ENUM ('ios', 'android', 'web');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'shop_status') THEN
-    CREATE TYPE shop_status AS ENUM ('pending', 'verified', 'rejected', 'suspended');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'kyc_status') THEN
-    CREATE TYPE kyc_status AS ENUM ('not_started', 'pending', 'verified', 'rejected');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'product_status') THEN
-    CREATE TYPE product_status AS ENUM ('active', 'draft', 'out_of_stock', 'removed');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bargain_status') THEN
-    CREATE TYPE bargain_status AS ENUM ('open', 'countered', 'accepted', 'rejected', 'expired');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bargain_actor') THEN
-    CREATE TYPE bargain_actor AS ENUM ('consumer', 'seller');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bargain_message_type') THEN
-    CREATE TYPE bargain_message_type AS ENUM ('offer', 'counter', 'accept', 'reject', 'text');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
-    CREATE TYPE order_status AS ENUM ('placed', 'confirmed', 'packed', 'out_for_delivery', 'delivered', 'cancelled', 'return_requested', 'returned');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method') THEN
-    CREATE TYPE payment_method AS ENUM ('cod', 'razorpay');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status') THEN
-    CREATE TYPE payment_status AS ENUM ('pending', 'paid', 'failed', 'refunded', 'partially_refunded');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'return_status') THEN
-    CREATE TYPE return_status AS ENUM ('requested', 'approved', 'rejected', 'picked_up', 'refunded');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payout_status') THEN
-    CREATE TYPE payout_status AS ENUM ('pending', 'processing', 'paid', 'failed');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'remittance_status') THEN
-    CREATE TYPE remittance_status AS ENUM ('pending', 'remitted');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'verification_status') THEN
-    CREATE TYPE verification_status AS ENUM ('pending', 'verified', 'rejected');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'notification_type') THEN
-    CREATE TYPE notification_type AS ENUM ('order', 'bargain', 'system', 'promo', 'return');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'report_target_type') THEN
-    CREATE TYPE report_target_type AS ENUM ('shop', 'product', 'user', 'order');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'report_status') THEN
-    CREATE TYPE report_status AS ENUM ('open', 'reviewing', 'resolved', 'dismissed');
-  END IF;
-END $$;
-
--- ------------------------------------------------------------------------------
--- 3. HELPER FUNCTIONS
+-- 2. HELPER FUNCTIONS
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -137,340 +44,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ------------------------------------------------------------------------------
--- 4. CORE DATABASE TABLES
+-- 3. POSTGIS NEARBY BOUTIQUES DISCOVERY RPC
 -- ------------------------------------------------------------------------------
-
--- 4.1 Profiles (extends auth.users)
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  role user_role NOT NULL DEFAULT 'consumer',
-  full_name text,
-  phone text,
-  email text,
-  avatar_url text,
-  skin_tone_pref text,
-  accepted_terms_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.2 Push Subscriptions
-CREATE TABLE IF NOT EXISTS public.push_subscriptions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  onesignal_player_id text NOT NULL,
-  platform push_platform NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(user_id, onesignal_player_id)
-);
-
--- 4.3 Categories & Brands
-CREATE TABLE IF NOT EXISTS public.categories (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  parent_id uuid REFERENCES public.categories(id) ON DELETE SET NULL,
-  icon_url text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.brands (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL UNIQUE,
-  logo_url text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.4 Shops / Boutiques
-CREATE TABLE IF NOT EXISTS public.shops (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  seller_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  name text NOT NULL,
-  description text,
-  logo_url text,
-  banner_url text,
-  address text NOT NULL,
-  location geography(Point, 4326) NOT NULL,
-  status shop_status NOT NULL DEFAULT 'verified',
-  category_ids uuid[] DEFAULT '{}',
-  avg_rating numeric(3,2) DEFAULT 4.80,
-  razorpay_linked_account_id text,
-  kyc_status kyc_status NOT NULL DEFAULT 'verified',
-  is_verified boolean NOT NULL DEFAULT true,
-  commission_rate numeric(5,2) NOT NULL DEFAULT 10.00,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_shops_location ON public.shops USING gist(location);
-CREATE INDEX IF NOT EXISTS idx_shops_seller ON public.shops(seller_id);
-
--- 4.5 Products
-CREATE TABLE IF NOT EXISTS public.products (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  shop_id uuid NOT NULL REFERENCES public.shops(id) ON DELETE CASCADE,
-  category_id uuid NOT NULL REFERENCES public.categories(id),
-  brand_id uuid REFERENCES public.brands(id) ON DELETE SET NULL,
-  title text NOT NULL,
-  description text,
-  base_price numeric(10,2) NOT NULL CHECK (base_price >= 0),
-  min_bargain_price numeric(10,2) NOT NULL CHECK (min_bargain_price >= 0 AND min_bargain_price <= base_price),
-  bargain_enabled boolean NOT NULL DEFAULT true,
-  status product_status NOT NULL DEFAULT 'active',
-  search_vector tsvector,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_products_shop ON public.products(shop_id);
-CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
-CREATE INDEX IF NOT EXISTS idx_products_search ON public.products USING gin(search_vector);
-
--- 4.6 Product Variants
-CREATE TABLE IF NOT EXISTS public.product_variants (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-  size text NOT NULL,
-  color text NOT NULL,
-  stock_qty int NOT NULL DEFAULT 10 CHECK (stock_qty >= 0),
-  price_override numeric(10,2) CHECK (price_override IS NULL OR price_override >= 0),
-  sku text,
-  image_urls text[] NOT NULL DEFAULT '{}',
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_variants_product ON public.product_variants(product_id);
-
--- 4.7 Product Images
-CREATE TABLE IF NOT EXISTS public.product_images (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-  url text NOT NULL,
-  display_order int NOT NULL DEFAULT 0,
-  is_primary boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_product_images_product ON public.product_images(product_id);
-
--- 4.8 Bargains
-CREATE TABLE IF NOT EXISTS public.bargains (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-  variant_id uuid REFERENCES public.product_variants(id) ON DELETE CASCADE,
-  consumer_id uuid NOT NULL REFERENCES public.profiles(id),
-  seller_id uuid NOT NULL REFERENCES public.profiles(id),
-  status bargain_status NOT NULL DEFAULT 'open',
-  consumer_offer numeric(10,2),
-  counter_offer numeric(10,2),
-  agreed_price numeric(10,2),
-  current_offer numeric(10,2) NOT NULL DEFAULT 0.00,
-  current_offer_by bargain_actor NOT NULL DEFAULT 'consumer',
-  expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours'),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_bargains_consumer ON public.bargains(consumer_id);
-CREATE INDEX IF NOT EXISTS idx_bargains_seller ON public.bargains(seller_id);
-CREATE INDEX IF NOT EXISTS idx_bargains_product ON public.bargains(product_id);
-
--- 4.9 Bargain Messages
-CREATE TABLE IF NOT EXISTS public.bargain_messages (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  bargain_id uuid NOT NULL REFERENCES public.bargains(id) ON DELETE CASCADE,
-  sender_id uuid NOT NULL REFERENCES public.profiles(id),
-  offer_amount numeric(10,2),
-  message_type bargain_message_type NOT NULL,
-  text text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_bargain_messages_bargain ON public.bargain_messages(bargain_id);
-
--- 4.10 Shopping Bag / Cart Items
-CREATE TABLE IF NOT EXISTS public.cart_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  consumer_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-  variant_id uuid NOT NULL REFERENCES public.product_variants(id) ON DELETE CASCADE,
-  bargain_id uuid REFERENCES public.bargains(id) ON DELETE SET NULL,
-  quantity int NOT NULL DEFAULT 1 CHECK (quantity > 0),
-  agreed_price numeric(10,2) CHECK (agreed_price IS NULL OR agreed_price >= 0),
-  reserved_until timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(consumer_id, variant_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_cart_items_consumer ON public.cart_items(consumer_id);
-
--- 4.11 Wishlists
-CREATE TABLE IF NOT EXISTS public.wishlists (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  consumer_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(consumer_id, product_id)
-);
-
--- 4.12 Delivery Partner Profiles
-CREATE TABLE IF NOT EXISTS public.delivery_partner_profiles (
-  id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
-  vehicle_type text NOT NULL DEFAULT 'Motorcycle (Hero Splendor Plus)',
-  vehicle_number text NOT NULL DEFAULT 'RJ 14 JP 4421',
-  driving_license_url text DEFAULT 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&w=400&q=80',
-  is_online boolean NOT NULL DEFAULT true,
-  current_location geography(Point, 4326),
-  verification_status text NOT NULL DEFAULT 'verified',
-  bank_account_details jsonb,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.13 Orders
-CREATE TABLE IF NOT EXISTS public.orders (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_number text,
-  consumer_id uuid NOT NULL REFERENCES public.profiles(id),
-  shop_id uuid NOT NULL REFERENCES public.shops(id),
-  delivery_partner_id uuid REFERENCES public.profiles(id),
-  status order_status NOT NULL DEFAULT 'placed',
-  payment_method payment_method NOT NULL DEFAULT 'cod',
-  payment_status payment_status NOT NULL DEFAULT 'pending',
-  razorpay_order_id text,
-  razorpay_transfer_id text,
-  subtotal numeric(10,2) NOT NULL DEFAULT 0.00 CHECK (subtotal >= 0),
-  delivery_fee numeric(10,2) NOT NULL DEFAULT 0.00 CHECK (delivery_fee >= 0),
-  commission_amount numeric(10,2) NOT NULL DEFAULT 0.00 CHECK (commission_amount >= 0),
-  seller_payout_amount numeric(10,2) NOT NULL DEFAULT 0.00 CHECK (seller_payout_amount >= 0),
-  platform_fee numeric(10,2) NOT NULL DEFAULT 0.00,
-  total_amount numeric(10,2) NOT NULL DEFAULT 0.00 CHECK (total_amount >= 0),
-  total numeric(10,2) DEFAULT 0.00,
-  cod_collected boolean NOT NULL DEFAULT false,
-  cod_collected_at timestamptz,
-  delivery_address jsonb NOT NULL DEFAULT '{}'::jsonb,
-  delivery_otp text DEFAULT '4829',
-  cancel_reason text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_orders_consumer ON public.orders(consumer_id);
-CREATE INDEX IF NOT EXISTS idx_orders_shop ON public.orders(shop_id);
-CREATE INDEX IF NOT EXISTS idx_orders_delivery_partner ON public.orders(delivery_partner_id);
-
--- 4.14 Order Items
-CREATE TABLE IF NOT EXISTS public.order_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  product_id uuid REFERENCES public.products(id) ON DELETE SET NULL,
-  variant_id uuid REFERENCES public.product_variants(id) ON DELETE SET NULL,
-  quantity int NOT NULL CHECK (quantity > 0),
-  unit_price numeric(10,2) NOT NULL CHECK (unit_price >= 0),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_order_items_order ON public.order_items(order_id);
-
--- 4.15 Deliveries Dispatch Radar
-CREATE TABLE IF NOT EXISTS public.deliveries (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  delivery_partner_id uuid REFERENCES public.profiles(id),
-  status text NOT NULL DEFAULT 'pending',
-  pickup_otp text DEFAULT '1234',
-  delivery_otp text DEFAULT '4829',
-  delivery_payout numeric(10,2) NOT NULL DEFAULT 85.00,
-  distance_km numeric(6,2) NOT NULL DEFAULT 2.4,
-  accepted_at timestamptz,
-  picked_up_at timestamptz,
-  delivered_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_deliveries_order ON public.deliveries(order_id);
-CREATE INDEX IF NOT EXISTS idx_deliveries_partner ON public.deliveries(delivery_partner_id);
-
--- 4.16 Returns & Refunds
-CREATE TABLE IF NOT EXISTS public.returns_refunds (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  requested_by uuid NOT NULL REFERENCES public.profiles(id),
-  reason text NOT NULL,
-  photo_urls text[] DEFAULT '{}',
-  status return_status NOT NULL DEFAULT 'requested',
-  refund_amount numeric(10,2),
-  resolved_by uuid REFERENCES public.profiles(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.17 Payouts
-CREATE TABLE IF NOT EXISTS public.payouts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  seller_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  period_start date NOT NULL,
-  period_end date NOT NULL,
-  gross_sales numeric(10,2) NOT NULL DEFAULT 0.00,
-  commission_deducted numeric(10,2) NOT NULL DEFAULT 0.00,
-  net_payout numeric(10,2) NOT NULL DEFAULT 0.00,
-  status payout_status NOT NULL DEFAULT 'pending',
-  razorpay_payout_id text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.18 COD Remittance
-CREATE TABLE IF NOT EXISTS public.cod_remittance (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  delivery_partner_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  amount numeric(10,2) NOT NULL CHECK (amount >= 0),
-  status remittance_status NOT NULL DEFAULT 'pending',
-  remitted_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.19 Reviews & Notifications
-CREATE TABLE IF NOT EXISTS public.reviews (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  product_id uuid REFERENCES public.products(id) ON DELETE SET NULL,
-  shop_id uuid REFERENCES public.shops(id) ON DELETE SET NULL,
-  reviewer_id uuid NOT NULL REFERENCES public.profiles(id),
-  rating int NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  comment text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.notifications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  title text NOT NULL,
-  body text NOT NULL,
-  type notification_type NOT NULL,
-  deep_link text,
-  read boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- 4.20 Platform Configuration
-CREATE TABLE IF NOT EXISTS public.platform_config (
-  key text PRIMARY KEY,
-  value jsonb NOT NULL
-);
-
-INSERT INTO public.platform_config (key, value) VALUES
-  ('default_commission_rate', '{"rate": 10.0}'::jsonb),
-  ('delivery_fee_rules', '{"base_fee": 30.0, "per_km_rate": 5.0, "free_above": 999.0}'::jsonb),
-  ('feature_flags', '{"bargaining_enabled": true, "ai_helpdesk_enabled": true, "skin_tone_recommendations": false}'::jsonb)
-ON CONFLICT (key) DO NOTHING;
-
--- ------------------------------------------------------------------------------
--- 5. STORED PROCEDURES, RPC & TRIGGERS
--- ------------------------------------------------------------------------------
-
--- 5.1 PostGIS Nearby Boutiques Discovery
 CREATE OR REPLACE FUNCTION public.get_nearby_shops(
   lat double precision,
   lng double precision,
@@ -508,59 +83,48 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5.2 Auto Create / Sync Profiles on Auth Signup
--- 5.2 Auto Create / Sync Profiles on Auth Signup
+-- ------------------------------------------------------------------------------
+-- 4. AUTH SIGNUP TRIGGER & PROFILE AUTO-PROVISIONING
+-- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth
-AS $$
+RETURNS TRIGGER AS $$
 DECLARE
-  v_role public.user_role := 'consumer';
+  v_role user_role := 'consumer';
   v_meta_role text;
 BEGIN
   v_meta_role := new.raw_user_meta_data->>'role';
-  
-  -- Public registration only supports consumer, seller, and delivery (Admin is NEVER registerable publicly)
-  IF v_meta_role = 'seller' THEN
-    v_role := 'seller'::public.user_role;
-  ELSIF v_meta_role = 'delivery' OR v_meta_role = 'delivery_partner' THEN
-    v_role := 'delivery'::public.user_role;
-  ELSE
-    v_role := 'consumer'::public.user_role;
+  IF v_meta_role IN ('consumer', 'seller', 'delivery', 'admin') THEN
+    v_role := v_meta_role::user_role;
   END IF;
 
   INSERT INTO public.profiles (
-    id, role, full_name, phone, email, avatar_url, accepted_terms_at, created_at, updated_at
+    id, role, full_name, phone, email, avatar_url, accepted_terms_at
   ) VALUES (
     new.id,
     v_role,
-    coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', ''),
     new.phone,
     new.email,
     new.raw_user_meta_data->>'avatar_url',
-    now(),
-    now(),
     now()
   )
   ON CONFLICT (id) DO UPDATE SET
     email = EXCLUDED.email,
-    phone = coalesce(EXCLUDED.phone, public.profiles.phone),
-    full_name = coalesce(nullif(EXCLUDED.full_name, ''), public.profiles.full_name),
-    role = coalesce(EXCLUDED.role, public.profiles.role),
-    updated_at = now();
+    phone = coalesce(EXCLUDED.phone, profiles.phone),
+    full_name = coalesce(nullif(EXCLUDED.full_name, ''), profiles.full_name);
 
-  RETURN new;
+  RETURN NEW;
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 5.3 Auto-Sync Accepted Bargain Deals into Shopping Bag
+-- ------------------------------------------------------------------------------
+-- 5. AUTO-SYNC ACCEPTED BARGAIN DEALS INTO SHOPPING BAG
+-- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.auto_cart_on_bargain_accepted()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -583,7 +147,7 @@ CREATE TRIGGER trg_auto_cart_on_bargain_accepted
   FOR EACH ROW EXECUTE FUNCTION public.auto_cart_on_bargain_accepted();
 
 -- ------------------------------------------------------------------------------
--- 6. ROW LEVEL SECURITY (RLS) POLICIES
+-- 6. ROW LEVEL SECURITY (RLS) & PERMISSIVE POLICIES ON ALL 22 TABLES
 -- ------------------------------------------------------------------------------
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
@@ -608,9 +172,11 @@ ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_config ENABLE ROW LEVEL SECURITY;
 
--- Permissive dev policies
 DROP POLICY IF EXISTS "Public profiles viewable" ON public.profiles;
 CREATE POLICY "Public profiles viewable" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Push subscriptions permissive" ON public.push_subscriptions;
+CREATE POLICY "Push subscriptions permissive" ON public.push_subscriptions FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Shops are viewable by everyone" ON public.shops;
 CREATE POLICY "Shops are viewable by everyone" ON public.shops FOR ALL USING (true) WITH CHECK (true);
@@ -654,6 +220,12 @@ CREATE POLICY "Deliveries permissive" ON public.deliveries FOR ALL USING (true) 
 DROP POLICY IF EXISTS "Delivery partner profiles permissive" ON public.delivery_partner_profiles;
 CREATE POLICY "Delivery partner profiles permissive" ON public.delivery_partner_profiles FOR ALL USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Returns refunds permissive" ON public.returns_refunds;
+CREATE POLICY "Returns refunds permissive" ON public.returns_refunds FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Payouts permissive" ON public.payouts;
+CREATE POLICY "Payouts permissive" ON public.payouts FOR ALL USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "COD remittance permissive" ON public.cod_remittance;
 CREATE POLICY "COD remittance permissive" ON public.cod_remittance FOR ALL USING (true) WITH CHECK (true);
 
@@ -667,10 +239,28 @@ DROP POLICY IF EXISTS "Platform config permissive" ON public.platform_config;
 CREATE POLICY "Platform config permissive" ON public.platform_config FOR ALL USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------------
--- 7. COMPREHENSIVE SEED DATA (All Roles, Boutiques, Buyers, Riders & Orders)
+-- 7. POSTGREST SCHEMA & TABLE GRANTS
 -- ------------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
 
--- 7.1 Auth Users (All passwords matching email or 'password123')
+-- ------------------------------------------------------------------------------
+-- 8. PLATFORM CONFIG SEED VALUES
+-- ------------------------------------------------------------------------------
+INSERT INTO public.platform_config (key, value) VALUES
+  ('default_commission_rate', '{"rate": 10.0}'::jsonb),
+  ('delivery_fee_rules', '{"base_fee": 30.0, "per_km_rate": 5.0, "free_above": 999.0}'::jsonb),
+  ('feature_flags', '{"bargaining_enabled": true, "ai_helpdesk_enabled": true, "skin_tone_recommendations": false}'::jsonb)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+-- ------------------------------------------------------------------------------
+-- 9. AUTH TEST ACCOUNTS (Passwords matching email or 'password123')
+-- ------------------------------------------------------------------------------
 INSERT INTO auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at
@@ -710,16 +300,9 @@ WHERE email IN (
   'admin@paridhan.com', 'admin1@gm.com'
 );
 
--- Grant schema and table permissions for PostgREST API roles
-GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
-
--- 7.2 Public Profiles
+-- ------------------------------------------------------------------------------
+-- 10. PUBLIC PROFILES SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.profiles (id, role, full_name, phone, email, avatar_url, accepted_terms_at) VALUES
   ('00000000-0000-0000-0000-000000000001', 'consumer', 'Priya Sharma', '+91 98290 11111', 'buyer1@gm.com', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80', now()),
   ('00000000-0000-0000-0000-000000000011', 'consumer', 'Ananya Sen', '+91 98290 11112', 'buyer2@gm.com', 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80', now()),
@@ -737,7 +320,9 @@ ON CONFLICT (id) DO UPDATE SET
   phone = EXCLUDED.phone,
   email = EXCLUDED.email;
 
--- 7.3 Delivery Partner Profiles (Johari Bazaar: 26.9239, 75.8267 & Bapu Bazaar: 26.9185, 75.8210)
+-- ------------------------------------------------------------------------------
+-- 11. DELIVERY PARTNER PROFILES SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.delivery_partner_profiles (
   id, vehicle_type, vehicle_number, driving_license_url, is_online, current_location, verification_status
 ) VALUES 
@@ -761,7 +346,9 @@ INSERT INTO public.delivery_partner_profiles (
   )
 ON CONFLICT (id) DO UPDATE SET is_online = true, verification_status = 'verified';
 
--- 7.4 Categories & Brands
+-- ------------------------------------------------------------------------------
+-- 12. CATEGORIES & BRANDS SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.categories (id, name, icon_url) VALUES
   ('a0000001-0000-0000-0000-000000000001', 'Women Ethnic Wear', 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?auto=format&fit=crop&w=400&q=80'),
   ('a0000001-0000-0000-0000-000000000002', 'Men Kurtas & Apparel', 'https://images.unsplash.com/photo-1597983073493-88cd35cf93b0?auto=format&fit=crop&w=400&q=80'),
@@ -777,7 +364,9 @@ INSERT INTO public.brands (id, name, logo_url) VALUES
   ('b0000001-0000-0000-0000-000000000004', 'Gulab Cotton Crafts', 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=200&q=80')
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, logo_url = EXCLUDED.logo_url;
 
--- 7.5 Shops / Verified Boutiques in Jaipur
+-- ------------------------------------------------------------------------------
+-- 13. SHOES / VERIFIED BOUTIQUES SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.shops (
   id, seller_id, name, description, address, location, kyc_status, status, is_verified, banner_url, avg_rating
 ) VALUES
@@ -840,7 +429,9 @@ ON CONFLICT (id) DO UPDATE SET
   status = 'verified',
   is_verified = true;
 
--- 7.6 Rich Product Catalog
+-- ------------------------------------------------------------------------------
+-- 14. PRODUCTS SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.products (
   id, shop_id, category_id, brand_id, title, description, base_price, min_bargain_price, bargain_enabled, status
 ) VALUES
@@ -910,7 +501,9 @@ ON CONFLICT (id) DO UPDATE SET
   min_bargain_price = EXCLUDED.min_bargain_price,
   status = 'active';
 
--- 7.7 Product Variants
+-- ------------------------------------------------------------------------------
+-- 15. PRODUCT VARIANTS SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.product_variants (
   id, product_id, size, color, stock_qty, price_override, sku, image_urls
 ) VALUES
@@ -924,7 +517,9 @@ INSERT INTO public.product_variants (
   ('e0000001-0000-0000-0000-000000000008', 'd0000001-0000-0000-0000-000000000005', 'Free Size', 'Emerald Green', 7, NULL, 'JHR-SAR-F', ARRAY['https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80'])
 ON CONFLICT (id) DO NOTHING;
 
--- 7.8 Product Images
+-- ------------------------------------------------------------------------------
+-- 16. PRODUCT IMAGES SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.product_images (id, product_id, url, display_order, is_primary) VALUES
   (gen_random_uuid(), 'd0000001-0000-0000-0000-000000000001', 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?auto=format&fit=crop&w=800&q=80', 1, true),
   (gen_random_uuid(), 'd0000001-0000-0000-0000-000000000002', 'https://images.unsplash.com/photo-1597983073493-88cd35cf93b0?auto=format&fit=crop&w=800&q=80', 1, true),
@@ -933,7 +528,9 @@ INSERT INTO public.product_images (id, product_id, url, display_order, is_primar
   (gen_random_uuid(), 'd0000001-0000-0000-0000-000000000005', 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80', 1, true)
 ON CONFLICT (id) DO NOTHING;
 
--- 7.9 Pre-seeded Bargains & Active Chat Threads
+-- ------------------------------------------------------------------------------
+-- 17. BARGAINS SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.bargains (
   id, product_id, variant_id, consumer_id, seller_id, status,
   consumer_offer, counter_offer, agreed_price, current_offer, current_offer_by
@@ -979,7 +576,9 @@ INSERT INTO public.bargains (
   )
 ON CONFLICT (id) DO NOTHING;
 
--- 7.10 Pre-populated Shopping Bag for Buyer 1 (with accepted bargain price!)
+-- ------------------------------------------------------------------------------
+-- 18. CART ITEMS SEED DATA
+-- ------------------------------------------------------------------------------
 INSERT INTO public.cart_items (
   id, consumer_id, product_id, variant_id, bargain_id, quantity, agreed_price
 ) VALUES 
@@ -1003,12 +602,13 @@ INSERT INTO public.cart_items (
   )
 ON CONFLICT (consumer_id, variant_id) DO NOTHING;
 
--- 7.11 Pre-seeded Sample Orders & Live Deliveries
+-- ------------------------------------------------------------------------------
+-- 19. ORDERS & DELIVERIES SEED DATA
+-- ------------------------------------------------------------------------------
 DO $$
 DECLARE
   v_order_1 uuid := 'f0000001-0000-0000-0000-000000000001';
   v_order_2 uuid := 'f0000001-0000-0000-0000-000000000002';
-  v_order_3 uuid := 'f0000001-0000-0000-0000-000000000003';
 BEGIN
   -- Order 1: Confirmed & ready for delivery pickup
   INSERT INTO public.orders (
@@ -1100,5 +700,4 @@ END $$;
 -- ------------------------------------------------------------------------------
 -- SETUP COMPLETED SUCCESSFULLY
 -- ------------------------------------------------------------------------------
-SELECT 'PARIDHAN SETUP COMPLETE! All tables, PostGIS RPCs, triggers, and comprehensive multi-role seed accounts are ready.' AS status;
-
+SELECT 'PARIDHAN POST-TABLE SETUP COMPLETE! All indexes, PostGIS RPCs, triggers, and seed accounts are ready.' AS status;
