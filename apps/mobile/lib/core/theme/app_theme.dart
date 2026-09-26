@@ -3,18 +3,18 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Brand Palette: Indian Hyperlocal Fashion Aesthetic
-  // Deep Indigo / Royal Navy + Warm Terracotta Saffron + Champagne Gold
-  static const Color primaryColor = Color(0xFF1E2640); // Deep Royal Indigo
-  static const Color primaryLight = Color(0xFF2E395E);
-  static const Color accentColor = Color(0xFFE05A47); // Warm Terracotta / Saffron
-  static const Color accentLight = Color(0xFFFFF1EF);
-  static const Color secondaryColor = Color(0xFFD4AF37); // Champagne Gold
+  // Coral Crimson Red + Soft Rose + Gold Rating + Clean Surface
+  static const Color primaryColor = Color(0xFFD9384E); // Signature Paridhan Coral Crimson
+  static const Color primaryLight = Color(0xFFFFF0F2); // Soft Rose Tint
+  static const Color accentColor = Color(0xFFE24B5C); // Coral Accent
+  static const Color accentLight = Color(0xFFFFECEF);
+  static const Color secondaryColor = Color(0xFFF59E0B); // Gold / Amber for Ratings
 
-  static const Color backgroundColor = Color(0xFFF9F9FB);
+  static const Color backgroundColor = Color(0xFFF8F9FA);
   static const Color surfaceColor = Colors.white;
   static const Color cardColor = Colors.white;
 
-  static const Color textPrimary = Color(0xFF191C24);
+  static const Color textPrimary = Color(0xFF1F2937);
   static const Color textSecondary = Color(0xFF6B7280);
   static const Color textMuted = Color(0xFF9CA3AF);
 

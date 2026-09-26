@@ -162,8 +162,8 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
               padding: const EdgeInsets.all(16),
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 220,
                 crossAxisSpacing: 14,
                 mainAxisSpacing: 14,
                 childAspectRatio: 0.68,
