@@ -14,6 +14,8 @@ class ProductModel {
   final bool bargainEnabled;
   final String status; // active, draft, out_of_stock, removed
   final List<VariantModel> variants;
+  final double avgRating;
+  final int totalReviews;
   final DateTime? createdAt;
 
   const ProductModel({
@@ -30,6 +32,8 @@ class ProductModel {
     this.bargainEnabled = true,
     this.status = 'active',
     this.variants = const [],
+    this.avgRating = 4.8,
+    this.totalReviews = 0,
     this.createdAt,
   });
 
@@ -59,6 +63,8 @@ class ProductModel {
       bargainEnabled: json['bargain_enabled'] as bool? ?? true,
       status: json['status'] as String? ?? 'draft',
       variants: variants,
+      avgRating: (json['avg_rating'] as num?)?.toDouble() ?? 4.8,
+      totalReviews: (json['total_reviews'] as num?)?.toInt() ?? (json['reviews_count'] as num?)?.toInt() ?? 0,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
@@ -79,6 +85,8 @@ class ProductModel {
       'min_bargain_price': minBargainPrice,
       'bargain_enabled': bargainEnabled,
       'status': status,
+      'avg_rating': avgRating,
+      'total_reviews': totalReviews,
     };
   }
 
@@ -96,6 +104,8 @@ class ProductModel {
     bool? bargainEnabled,
     String? status,
     List<VariantModel>? variants,
+    double? avgRating,
+    int? totalReviews,
     DateTime? createdAt,
   }) {
     return ProductModel(
@@ -112,6 +122,8 @@ class ProductModel {
       bargainEnabled: bargainEnabled ?? this.bargainEnabled,
       status: status ?? this.status,
       variants: variants ?? this.variants,
+      avgRating: avgRating ?? this.avgRating,
+      totalReviews: totalReviews ?? this.totalReviews,
       createdAt: createdAt ?? this.createdAt,
     );
   }

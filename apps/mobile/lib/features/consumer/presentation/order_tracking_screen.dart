@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../domain/order_model.dart';
 import 'order_controller.dart';
+import 'widgets/product_rating_sheet.dart';
 
 class OrderTrackingScreen extends ConsumerStatefulWidget {
   final String orderId;
@@ -288,19 +289,19 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                 child: Column(
                   children: [
                     ...order.items.map((item) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
                           child: Row(
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(6),
                                 child: Image.network(
                                   item.imageUrl,
-                                  width: 40,
-                                  height: 40,
+                                  width: 44,
+                                  height: 44,
                                   fit: BoxFit.cover,
                                   errorBuilder: (context, error, stackTrace) => Container(
-                                    width: 40,
-                                    height: 40,
+                                    width: 44,
+                                    height: 44,
                                     color: Colors.grey.shade200,
                                     child: const Icon(Icons.checkroom, size: 18),
                                   ),
@@ -316,7 +317,32 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                                   ],
                                 ),
                               ),
-                              Text('₹${item.totalPrice.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('₹${item.totalPrice.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                  const SizedBox(height: 4),
+                                  OutlinedButton.icon(
+                                    onPressed: () => ProductRatingSheet.show(
+                                      context,
+                                      orderId: order.id,
+                                      productId: item.productId,
+                                      productTitle: item.productTitle,
+                                      shopName: order.shopName,
+                                      imageUrl: item.imageUrl,
+                                      shopId: order.shopId,
+                                    ),
+                                    icon: const Icon(Icons.star_rounded, size: 13, color: Color(0xFFF59E0B)),
+                                    label: const Text('Rate', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      side: const BorderSide(color: Color(0xFFF59E0B)),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         )),

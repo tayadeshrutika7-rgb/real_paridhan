@@ -440,7 +440,8 @@ CREATE TABLE IF NOT EXISTS public.reviews (
   reviewer_id uuid NOT NULL REFERENCES public.profiles(id),
   rating int NOT NULL CHECK (rating >= 1 AND rating <= 5),
   comment text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_reviews_order_product_reviewer UNIQUE (order_id, product_id, reviewer_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.notifications (
@@ -1095,10 +1096,63 @@ BEGIN
   INSERT INTO public.deliveries (id, order_id, delivery_partner_id, status, pickup_otp, delivery_otp, delivery_payout, distance_km, picked_up_at)
   VALUES (gen_random_uuid(), v_order_2, '00000000-0000-0000-0000-000000000003', 'picked_up', '1234', '7719', 110.00, 4.8, now() - interval '15 minutes')
   ON CONFLICT (id) DO NOTHING;
+
+  -- Order 3: Completed & Delivered Order with Verified Product Reviews
+  INSERT INTO public.orders (
+    id, order_number, consumer_id, shop_id, delivery_partner_id, status, payment_method,
+    payment_status, subtotal, delivery_fee, commission_amount, seller_payout_amount,
+    platform_fee, total_amount, cod_collected, delivery_address, delivery_otp, delivered_at
+  ) VALUES (
+    v_order_3,
+    'PRD-2026-8910',
+    '00000000-0000-0000-0000-000000000001',
+    'c0000001-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000003',
+    'delivered',
+    'cod',
+    'paid',
+    4999.00,
+    0.00,
+    250.00,
+    4749.00,
+    10.00,
+    5009.00,
+    true,
+    jsonb_build_object(
+      'full_name', 'Priya Sharma',
+      'phone', '+91 98290 11111',
+      'address_line1', 'House 14, Johari Bazaar Lane',
+      'city', 'Jaipur',
+      'state', 'Rajasthan',
+      'pincode', '302003'
+    ),
+    '1122',
+    now() - interval '2 days'
+  ) ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.order_items (id, order_id, product_id, variant_id, quantity, unit_price)
+  VALUES (gen_random_uuid(), v_order_3, 'd0000001-0000-0000-0000-000000000001', 'e0000001-0000-0000-0000-000000000001', 1, 4999.00)
+  ON CONFLICT (id) DO NOTHING;
+
+  -- 7.12 Seed 5-Star Verified Buyer Reviews
+  INSERT INTO public.reviews (
+    id, order_id, product_id, shop_id, reviewer_id, rating, comment, created_at
+  ) VALUES (
+    '80000001-0000-0000-0000-000000000001',
+    v_order_3,
+    'd0000001-0000-0000-0000-000000000001',
+    'c0000001-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    5,
+    'Absolutely stunning handcrafted bridal lehenga! The authentic Rajasthani gota patti embroidery is exquisite and the fit was perfect. Delivered within 45 minutes.',
+    now() - interval '1 day'
+  ) ON CONFLICT (order_id, product_id, reviewer_id) DO NOTHING;
+
 END $$;
 
 -- ------------------------------------------------------------------------------
 -- SETUP COMPLETED SUCCESSFULLY
 -- ------------------------------------------------------------------------------
-SELECT 'PARIDHAN SETUP COMPLETE! All tables, PostGIS RPCs, triggers, and comprehensive multi-role seed accounts are ready.' AS status;
+SELECT 'PARIDHAN SETUP COMPLETE! All tables, PostGIS RPCs, triggers, reviews, and multi-role seed accounts are ready.' AS status;
+
 

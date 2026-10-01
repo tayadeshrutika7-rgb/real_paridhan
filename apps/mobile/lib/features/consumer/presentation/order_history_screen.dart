@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../domain/order_model.dart';
 import 'order_controller.dart';
+import 'widgets/product_rating_sheet.dart';
 
 class OrderHistoryScreen extends ConsumerStatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -89,12 +90,12 @@ class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
   }
 }
 
-class _OrderCard extends StatelessWidget {
+class _OrderCard extends ConsumerWidget {
   final OrderModel order;
   const _OrderCard({required this.order});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
     final isDelivered = order.status == OrderStatus.delivered;
 
@@ -158,19 +159,19 @@ class _OrderCard extends StatelessWidget {
 
             // Item Previews
             ...order.items.map((item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),
                         child: Image.network(
                           item.imageUrl,
-                          width: 36,
-                          height: 36,
+                          width: 40,
+                          height: 40,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) => Container(
-                            width: 36,
-                            height: 36,
+                            width: 40,
+                            height: 40,
                             color: Colors.grey.shade200,
                             child: const Icon(Icons.checkroom, size: 16),
                           ),
@@ -178,16 +179,40 @@ class _OrderCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          '${item.productTitle} (${item.size})',
-                          style: const TextStyle(fontSize: 12),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${item.productTitle} (${item.size})',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Qty: ${item.quantity}',
+                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        'x${item.quantity}',
-                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                      OutlinedButton.icon(
+                        onPressed: () => ProductRatingSheet.show(
+                          context,
+                          orderId: order.id,
+                          productId: item.productId,
+                          productTitle: item.productTitle,
+                          shopName: order.shopName,
+                          imageUrl: item.imageUrl,
+                          shopId: order.shopId,
+                        ),
+                        icon: const Icon(Icons.star_rounded, size: 14, color: Color(0xFFF59E0B)),
+                        label: const Text('Rate', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          side: const BorderSide(color: Color(0xFFF59E0B)),
+                        ),
                       ),
                     ],
                   ),
@@ -225,3 +250,4 @@ class _OrderCard extends StatelessWidget {
     );
   }
 }
+
