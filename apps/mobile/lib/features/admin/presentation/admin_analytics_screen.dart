@@ -13,7 +13,13 @@ class AdminAnalyticsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('City-Level Analytics (Jaipur)'),
+        title: const Text('City & Financial Analytics (Jaipur)'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(adminProvider.notifier).loadDashboard(),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -21,33 +27,36 @@ class AdminAnalyticsScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Period Selector
-            Row(
-              children: ['Today', 'This Week', 'This Month'].map((period) {
-                final isSelected = adminState.filterPeriod == period;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(period),
-                    selected: isSelected,
-                    onSelected: (_) => ref.read(adminProvider.notifier).setFilterPeriod(period),
-                    selectedColor: AppTheme.primaryColor,
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.white : AppTheme.textPrimary,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: ['Today', '7 Days', '30 Days', 'This Month'].map((period) {
+                  final isSelected = adminState.filterPeriod == period;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(period),
+                      selected: isSelected,
+                      onSelected: (_) => ref.read(adminProvider.notifier).setFilterPeriod(period),
+                      selectedColor: AppTheme.primaryColor,
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : AppTheme.textPrimary,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
             ),
 
             const SizedBox(height: 16),
 
-            // Key KPI Trio
+            // Key KPI Grid
             Row(
               children: [
                 Expanded(
                   child: _KpiBox(
-                    label: 'Platform GMV',
+                    label: 'Gross GMV',
                     value: '₹${metrics.totalGmv.toStringAsFixed(0)}',
                     icon: Icons.currency_rupee,
                     color: AppTheme.primaryColor,
@@ -56,22 +65,82 @@ class AdminAnalyticsScreen extends ConsumerWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: _KpiBox(
-                    label: 'Platform Net (10%)',
-                    value: '₹${metrics.platformRevenue.toStringAsFixed(0)}',
+                    label: 'Commission (10%)',
+                    value: '₹${metrics.totalCommissionEarned.toStringAsFixed(0)}',
                     icon: Icons.account_balance_wallet,
                     color: AppTheme.successColor,
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: _KpiBox(
-                    label: 'Bargain Conv.',
-                    value: '68.4%',
-                    icon: Icons.handshake_outlined,
+                    label: 'Ad Revenue',
+                    value: '₹${metrics.totalAdRevenue.toStringAsFixed(0)}',
+                    icon: Icons.campaign_outlined,
+                    color: const Color(0xFFE11D48),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _KpiBox(
+                    label: 'Seller Payouts',
+                    value: '₹${metrics.sellerEarnings.toStringAsFixed(0)}',
+                    icon: Icons.storefront,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _KpiBox(
+                    label: 'Net Platform Earnings',
+                    value: '₹${metrics.netPlatformEarnings.toStringAsFixed(0)}',
+                    icon: Icons.trending_up,
                     color: AppTheme.accentColor,
                   ),
                 ),
               ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Financial P&L Ledger Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.borderSubtle),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Platform Financial Breakdown',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      Icon(Icons.pie_chart_outline, size: 18, color: AppTheme.primaryColor),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildFinancialLine('Gross Sales Merchandise (GMV)', '₹${metrics.totalGmv.toStringAsFixed(2)}', isBold: true),
+                  _buildFinancialLine('Platform Commission Earned (+10%)', '+₹${metrics.totalCommissionEarned.toStringAsFixed(2)}', color: AppTheme.successColor),
+                  _buildFinancialLine('Advertisement Revenue', '+₹${metrics.totalAdRevenue.toStringAsFixed(2)}', color: AppTheme.successColor),
+                  _buildFinancialLine('Delivery & Convenience Charges', '+₹${metrics.totalDeliveryCharges.toStringAsFixed(2)}', color: AppTheme.successColor),
+                  _buildFinancialLine('Gateway & Processing Charges (2%)', '-₹${metrics.gatewayCharges.toStringAsFixed(2)}', color: AppTheme.errorColor),
+                  _buildFinancialLine('Processed Refunds & Disputes', '-₹${metrics.totalRefundsAmount.toStringAsFixed(2)}', color: AppTheme.errorColor),
+                  const Divider(height: 16),
+                  _buildFinancialLine('Net Platform Revenue / Earnings', '₹${metrics.netPlatformEarnings.toStringAsFixed(2)}', isBold: true, color: AppTheme.primaryColor),
+                ],
+              ),
             ),
 
             const SizedBox(height: 24),
@@ -115,7 +184,7 @@ class AdminAnalyticsScreen extends ConsumerWidget {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
-                            value: (zone.gmvAmount / metrics.totalGmv).clamp(0.0, 1.0),
+                            value: metrics.totalGmv > 0 ? (zone.gmvAmount / metrics.totalGmv).clamp(0.0, 1.0) : 0.0,
                             backgroundColor: Colors.grey.shade200,
                             valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
                             minHeight: 6,
@@ -132,14 +201,35 @@ class AdminAnalyticsScreen extends ConsumerWidget {
             Text('Top Fashion Categories', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 12),
 
-            const _CategoryBar(name: 'Handblock Anarkali Kurtas', share: '38%', count: '62 orders'),
-            const _CategoryBar(name: 'Bandhani & Georgette Dupatta Sets', share: '26%', count: '43 orders'),
-            const _CategoryBar(name: 'Pure Silk & Zari Sarees', share: '20%', count: '32 orders'),
-            const _CategoryBar(name: 'Bridal Heritage Lehengas', share: '16%', count: '25 orders'),
+            ...metrics.categorySalesDistribution.map((c) => _CategoryBar(
+                  name: c.label,
+                  share: '${((c.value / (metrics.totalGmv > 0 ? metrics.totalGmv : 1)) * 100).toStringAsFixed(1)}%',
+                  count: '₹${c.value.toStringAsFixed(0)} GMV',
+                )),
 
             const SizedBox(height: 40),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFinancialLine(String label, String value, {bool isBold = false, Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
+              color: color ?? AppTheme.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }

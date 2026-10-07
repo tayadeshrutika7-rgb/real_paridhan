@@ -21,11 +21,11 @@ class AddressModel {
     required this.addressLine1,
     this.addressLine2,
     this.landmark = '',
-    this.city = 'Jaipur',
-    this.state = 'Rajasthan',
+    this.city = 'Amravati',
+    this.state = 'Maharashtra',
     required this.pincode,
-    this.latitude = 26.9124,
-    this.longitude = 75.7873,
+    this.latitude = 20.9320,
+    this.longitude = 77.7523,
     this.isDefault = false,
   });
 
@@ -41,18 +41,18 @@ class AddressModel {
 
   factory AddressModel.fromJson(Map<String, dynamic> json) {
     return AddressModel(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? 'addr-${DateTime.now().millisecondsSinceEpoch}',
       userId: json['user_id'] as String? ?? '',
       fullName: json['full_name'] as String? ?? 'Recipient',
       phone: json['phone'] as String? ?? '',
       addressLine1: json['address_line1'] as String? ?? '',
       addressLine2: json['address_line2'] as String?,
       landmark: json['landmark'] as String? ?? '',
-      city: json['city'] as String? ?? 'Jaipur',
-      state: json['state'] as String? ?? 'Rajasthan',
-      pincode: json['pincode'] as String? ?? '302001',
-      latitude: (json['latitude'] as num?)?.toDouble() ?? 26.9124,
-      longitude: (json['longitude'] as num?)?.toDouble() ?? 75.7873,
+      city: json['city'] as String? ?? 'Amravati',
+      state: json['state'] as String? ?? 'Maharashtra',
+      pincode: (json['pincode'] ?? json['postal_code'] ?? json['postalCode'] ?? '444601').toString(),
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 20.9320,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 77.7523,
       isDefault: json['is_default'] as bool? ?? false,
     );
   }

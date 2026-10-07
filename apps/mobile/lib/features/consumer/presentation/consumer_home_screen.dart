@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
-import '../domain/nearby_shop.dart';
+import '../../advertising/domain/advertisement_model.dart';
+import '../../advertising/presentation/advertisement_controller.dart';
 import 'consumer_controller.dart';
 import 'cart_controller.dart';
+import 'wishlist_controller.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/notifications/presentation/role_notification_badge.dart';
 
 class ConsumerHomeScreen extends ConsumerStatefulWidget {
   const ConsumerHomeScreen({super.key});
@@ -193,11 +197,12 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
       ),
       builder: (ctx) {
         final locations = [
-          {'name': 'Amravati City Center', 'lat': 20.9374, 'lng': 77.7796},
-          {'name': 'Johari Bazaar, Jaipur', 'lat': 26.9124, 'lng': 75.7873},
-          {'name': 'Bapu Bazaar, Jaipur', 'lat': 26.9200, 'lng': 75.8200},
-          {'name': 'MI Road, Jaipur', 'lat': 26.9150, 'lng': 75.8050},
-          {'name': 'Malviya Nagar, Jaipur', 'lat': 26.8500, 'lng': 75.8150},
+          {'name': 'Rajkamal Chowk, Amravati', 'lat': 20.9320, 'lng': 77.7523},
+          {'name': 'Jawahar Gate, Amravati', 'lat': 20.9374, 'lng': 77.7562},
+          {'name': 'Camp Area, Amravati', 'lat': 20.9400, 'lng': 77.7450},
+          {'name': 'Gadge Nagar, Amravati', 'lat': 20.9500, 'lng': 77.7600},
+          {'name': 'Badnera Road, Amravati', 'lat': 20.9100, 'lng': 77.7400},
+          {'name': 'Irwin Chowk, Amravati', 'lat': 20.9340, 'lng': 77.7500},
         ];
 
         return SafeArea(
@@ -306,6 +311,7 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
     final authState = ref.watch(authProvider);
     final consumerState = ref.watch(consumerProvider);
     final cartState = ref.watch(cartProvider);
+    final wishlistState = ref.watch(wishlistProvider);
     final screenWidth = MediaQuery.of(context).size.width;
     final isWideScreen = screenWidth >= 800;
 
@@ -370,7 +376,7 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
         child: Column(
           children: [
             // Top Navigation Bar
-            _buildTopNavBar(context, authState, cartState, consumerState, isWideScreen),
+            _buildTopNavBar(context, authState, cartState, wishlistState, consumerState, isWideScreen),
 
             // Scrollable Content Body
             Expanded(
@@ -427,6 +433,7 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
     BuildContext context,
     AuthState authState,
     CartState cartState,
+    WishlistState wishlistState,
     ConsumerDiscoveryState consumerState,
     bool isWideScreen,
   ) {
@@ -588,16 +595,48 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
             const SizedBox(width: 6),
           ],
 
-          // Wishlist Icon Button
-          IconButton(
-            tooltip: 'Wishlist',
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFFF3F4F6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            icon: const Icon(Icons.favorite_outline_rounded, size: 20, color: AppTheme.textPrimary),
-            onPressed: () => context.push('/bargains?seller=false'),
+          // Wishlist Icon Button with Badge
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                tooltip: 'My Wishlist',
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFFF3F4F6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.favorite_outline_rounded, size: 20, color: AppTheme.textPrimary),
+                onPressed: () => context.push('/wishlist'),
+              ),
+              if (wishlistState.totalItems > 0)
+                Positioned(
+                  right: 2,
+                  top: 2,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primaryColor,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      '${wishlistState.totalItems}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
+
+          const SizedBox(width: 4),
+
+          // Consumer Notifications Bell Badge
+          const RoleNotificationBadge(role: UserRole.consumer),
 
           const SizedBox(width: 8),
 
@@ -621,13 +660,20 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
               icon: CircleAvatar(
                 radius: 16,
                 backgroundColor: AppTheme.primaryColor,
-                child: Text(
-                  user?.fullName?.isNotEmpty == true ? user!.fullName![0].toUpperCase() : 'U',
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                ),
+                backgroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
+                child: user?.avatarUrl == null
+                    ? Text(
+                        user?.fullName?.isNotEmpty == true ? user!.fullName![0].toUpperCase() : 'U',
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                      )
+                    : null,
               ),
               onSelected: (val) {
-                if (val == 'orders') {
+                if (val == 'profile') {
+                  context.push('/profile');
+                } else if (val == 'wishlist') {
+                  context.push('/wishlist');
+                } else if (val == 'orders') {
                   context.push('/orders');
                 } else if (val == 'bargains') {
                   context.push('/bargains?seller=false');
@@ -641,20 +687,93 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
               },
               itemBuilder: (context) => [
                 PopupMenuItem(
-                  enabled: false,
-                  child: Text(
-                    user?.fullName ?? user?.email ?? 'User',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                  value: 'profile',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        user?.fullName ?? user?.email ?? 'User',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'View & Edit Profile ➔',
+                        style: TextStyle(fontSize: 11, color: AppTheme.primaryColor, fontWeight: FontWeight.w600),
+                      ),
+                    ],
                   ),
                 ),
                 const PopupMenuDivider(),
-                const PopupMenuItem(value: 'orders', child: Text('My Orders')),
-                const PopupMenuItem(value: 'bargains', child: Text('My Bargains')),
-                const PopupMenuItem(value: 'terms', child: Text('Terms of Service')),
-                const PopupMenuItem(value: 'privacy', child: Text('Privacy Policy')),
+                const PopupMenuItem(
+                  value: 'profile',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_outline, size: 18, color: AppTheme.textPrimary),
+                      SizedBox(width: 8),
+                      Text('My Account & Care'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'wishlist',
+                  child: Row(
+                    children: [
+                      Icon(Icons.favorite_outline_rounded, size: 18, color: AppTheme.primaryColor),
+                      SizedBox(width: 8),
+                      Text('My Wishlist'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'orders',
+                  child: Row(
+                    children: [
+                      Icon(Icons.inventory_2_outlined, size: 18, color: AppTheme.textPrimary),
+                      SizedBox(width: 8),
+                      Text('My Orders'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'bargains',
+                  child: Row(
+                    children: [
+                      Icon(Icons.local_offer_outlined, size: 18, color: AppTheme.textPrimary),
+                      SizedBox(width: 8),
+                      Text('My Bargains'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'terms',
+                  child: Row(
+                    children: [
+                      Icon(Icons.description_outlined, size: 18, color: AppTheme.textSecondary),
+                      SizedBox(width: 8),
+                      Text('Terms of Service'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'privacy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.privacy_tip_outlined, size: 18, color: AppTheme.textSecondary),
+                      SizedBox(width: 8),
+                      Text('Privacy Policy'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
                 const PopupMenuItem(
                   value: 'logout',
-                  child: Text('Sign Out', style: TextStyle(color: AppTheme.errorColor)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.logout, size: 18, color: AppTheme.errorColor),
+                      SizedBox(width: 8),
+                      Text('Sign Out', style: TextStyle(color: AppTheme.errorColor)),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -737,6 +856,37 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
   ) {
     final cityName = consumerState.locationLabel.split(',').first.trim();
     final effectiveCity = cityName.isEmpty ? 'Amravati' : cityName;
+    final adState = ref.watch(advertisementProvider);
+
+    final List<Map<String, dynamic>> allSlides = [];
+
+    // Filter to only approved, live, non-expired, and non-paused hero ads
+    final liveHeroAds = adState.activeHeroAds.where((ad) => ad.isLive).toList();
+
+    for (final ad in liveHeroAds) {
+      ref.read(advertisementProvider.notifier).recordImpression(ad.id);
+
+      allSlides.add({
+        'id': ad.id,
+        'tag': ad.tag,
+        'titleLine1': ad.title,
+        'titleLine1Highlight': '',
+        'titleLine2': '',
+        'titleLine2Highlight': '',
+        'titleLine3': '',
+        'subtitle': ad.subtitle,
+        'buttonText': ad.buttonText,
+        'badgeText': ad.badgeText ?? 'HOT\nDEAL',
+        'imageUrl': ad.bannerImageUrl,
+        'bgGradient': const [Color(0xFFFDE8EC), Color(0xFFFBF0F2)],
+        'isSellerAd': true,
+        'targetType': ad.targetType,
+        'targetId': ad.targetId ?? ad.shopId,
+        'shopName': ad.shopName,
+      });
+    }
+
+    allSlides.addAll(_heroSlides);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -760,20 +910,24 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
               onPageChanged: (idx) {
                 setState(() => _currentHeroPage = idx);
               },
-              itemCount: _heroSlides.length,
+              itemCount: allSlides.length,
               itemBuilder: (context, index) {
-                final slide = _heroSlides[index];
-                final tag = slide['tag'] as String;
-                final line1 = slide['titleLine1'] as String;
-                final line1H = slide['titleLine1Highlight'] as String;
-                final line2 = slide['titleLine2'] as String;
-                final line2H = slide['titleLine2Highlight'] as String;
-                final line3 = slide['titleLine3'] as String;
-                final subtitle = '${slide['subtitle']} $effectiveCity.';
-                final buttonText = slide['buttonText'] as String;
-                final badgeText = slide['badgeText'] as String;
-                final imageUrl = slide['imageUrl'] as String;
-                final bgGradient = slide['bgGradient'] as List<Color>;
+                final slide = allSlides[index];
+                final tag = slide['tag'] as String? ?? 'FEATURED';
+                final line1 = slide['titleLine1'] as String? ?? '';
+                final line1H = slide['titleLine1Highlight'] as String? ?? '';
+                final line2 = slide['titleLine2'] as String? ?? '';
+                final line2H = slide['titleLine2Highlight'] as String? ?? '';
+                final line3 = slide['titleLine3'] as String? ?? '';
+                final rawSubtitle = slide['subtitle'] as String? ?? '';
+                final subtitle = slide['isSellerAd'] == true
+                    ? rawSubtitle
+                    : '$rawSubtitle $effectiveCity.';
+                final buttonText = slide['buttonText'] as String? ?? 'Explore';
+                final badgeText = slide['badgeText'] as String? ?? 'DEAL';
+                final imageUrl = slide['imageUrl'] as String? ?? '';
+                final bgGradient = (slide['bgGradient'] as List<Color>?) ??
+                    const [Color(0xFFFDE8EC), Color(0xFFFBF0F2)];
 
                 return Container(
                   decoration: BoxDecoration(
@@ -829,16 +983,20 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                                   ),
                                   children: [
                                     TextSpan(text: line1),
-                                    TextSpan(
-                                      text: line1H,
-                                      style: const TextStyle(color: AppTheme.primaryColor),
-                                    ),
-                                    const TextSpan(text: '\n'),
-                                    TextSpan(text: line2),
-                                    TextSpan(
-                                      text: line2H,
-                                      style: const TextStyle(color: AppTheme.primaryColor),
-                                    ),
+                                    if (line1H.isNotEmpty)
+                                      TextSpan(
+                                        text: line1H,
+                                        style: const TextStyle(color: AppTheme.primaryColor),
+                                      ),
+                                    if (line2.isNotEmpty || line2H.isNotEmpty) ...[
+                                      const TextSpan(text: '\n'),
+                                      TextSpan(text: line2),
+                                      if (line2H.isNotEmpty)
+                                        TextSpan(
+                                          text: line2H,
+                                          style: const TextStyle(color: AppTheme.primaryColor),
+                                        ),
+                                    ],
                                     if (line3.isNotEmpty) ...[
                                       const TextSpan(text: '\n'),
                                       TextSpan(text: line3),
@@ -865,7 +1023,24 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
 
                               // Explore Collection Button
                               ElevatedButton(
-                                onPressed: () => context.push('/search'),
+                                onPressed: () {
+                                  if (slide['isSellerAd'] == true) {
+                                    if (slide['id'] != null) {
+                                      ref.read(advertisementProvider.notifier).recordClick(slide['id'] as String);
+                                    }
+                                    final targetType = slide['targetType'] as String? ?? 'shop';
+                                    final targetId = slide['targetId'] as String?;
+                                    if (targetType == 'product' && targetId != null) {
+                                      context.push('/product/$targetId');
+                                    } else if (targetId != null) {
+                                      context.push('/shop/$targetId');
+                                    } else {
+                                      context.push('/search');
+                                    }
+                                  } else {
+                                    context.push('/search');
+                                  }
+                                },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppTheme.primaryColor,
                                   foregroundColor: Colors.white,
@@ -967,7 +1142,7 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(
-                  _heroSlides.length,
+                  allSlides.length,
                   (index) => AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -990,6 +1165,24 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
   }
 
   Widget _buildCategorySection(BuildContext context) {
+    final adState = ref.watch(advertisementProvider);
+    final activeCatAds = adState.activeCategoryAds.where((ad) => ad.isLive).toList();
+
+    // Match active category ad for selected category if available
+    AdvertisementModel? matchingCatAd;
+    for (final ad in activeCatAds) {
+      if (ad.targetCategory != null &&
+          (ad.targetCategory == _selectedCategory ||
+              _selectedCategory == 'All' ||
+              ad.targetCategory!.toLowerCase().contains(_selectedCategory.toLowerCase()))) {
+        matchingCatAd = ad;
+        break;
+      }
+    }
+    if (matchingCatAd == null && activeCatAds.isNotEmpty) {
+      matchingCatAd = activeCatAds.first;
+    }
+
     final categories = [
       {'label': 'All', 'icon': Icons.auto_awesome_rounded},
       {'label': 'Women Ethnic', 'icon': Icons.favorite_border_rounded},
@@ -1101,7 +1294,121 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
               },
             ),
           ),
+
+          // Render Category Header Advertisement Banner if active
+          if (matchingCatAd != null) ...[
+            const SizedBox(height: 12),
+            _buildCategoryHeaderAdBanner(context, matchingCatAd),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryHeaderAdBanner(BuildContext context, AdvertisementModel ad) {
+    ref.read(advertisementProvider.notifier).recordImpression(ad.id);
+
+    return InkWell(
+      onTap: () {
+        ref.read(advertisementProvider.notifier).recordClick(ad.id);
+        if (ad.targetType == 'product' && ad.targetId != null) {
+          context.push('/product/${ad.targetId}');
+        } else if (ad.targetId != null) {
+          context.push('/shop/${ad.targetId}');
+        } else {
+          context.push('/search');
+        }
+      },
+      child: Container(
+        height: 100,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Image.network(
+                  ad.bannerImageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(color: AppTheme.primaryLight),
+                ),
+              ),
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.black.withValues(alpha: 0.8),
+                        Colors.black.withValues(alpha: 0.2),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 14,
+                top: 12,
+                bottom: 12,
+                right: 80,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        ad.tag.toUpperCase(),
+                        style: const TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      ad.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      ad.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70, fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    ad.buttonText,
+                    style: const TextStyle(color: AppTheme.primaryColor, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1111,6 +1418,31 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
     List<Map<String, dynamic>> displayedStores,
     ConsumerDiscoveryState consumerState,
   ) {
+    final adState = ref.watch(advertisementProvider);
+    final activeSpotlights = adState.activeSpotlightAds.where((ad) => ad.isLive).toList();
+
+    // Map active spotlights into store card items
+    final List<Map<String, dynamic>> combinedStores = [];
+
+    for (final spot in activeSpotlights) {
+      ref.read(advertisementProvider.notifier).recordImpression(spot.id);
+      combinedStores.add({
+        'id': spot.targetId ?? spot.shopId,
+        'name': spot.shopName,
+        'discount': spot.badgeText?.replaceAll('\n', ' ') ?? 'SPOTLIGHT',
+        'rating': 4.9,
+        'distance': '0.8 km (Top Pick)',
+        'tags': spot.subtitle.isNotEmpty ? spot.subtitle : 'Spotlight Boutique',
+        'isOpen': true,
+        'imageUrl': spot.bannerImageUrl,
+        'category': spot.targetCategory ?? 'Ethnic',
+        'isSpotlight': true,
+        'adId': spot.id,
+      });
+    }
+
+    combinedStores.addAll(displayedStores);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -1196,10 +1528,10 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
             height: 245,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: displayedStores.length,
+              itemCount: combinedStores.length,
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, idx) {
-                final store = displayedStores[idx];
+                final store = combinedStores[idx];
                 final storeId = store['id'] as String;
                 final name = store['name'] as String;
                 final discount = store['discount'] as String;
@@ -1208,6 +1540,8 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                 final tags = store['tags'] as String;
                 final isOpen = store['isOpen'] as bool;
                 final imageUrl = store['imageUrl'] as String;
+                final isSpotlight = store['isSpotlight'] == true;
+                final adId = store['adId'] as String?;
 
                 return _buildStoreCard(
                   context: context,
@@ -1219,6 +1553,8 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                   tags: tags,
                   isOpen: isOpen,
                   imageUrl: imageUrl,
+                  isSpotlight: isSpotlight,
+                  adId: adId,
                 );
               },
             ),
@@ -1238,16 +1574,21 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
     required String tags,
     required bool isOpen,
     required String imageUrl,
+    bool isSpotlight = false,
+    String? adId,
   }) {
     return Container(
       width: 185,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(
+          color: isSpotlight ? AppTheme.primaryColor : const Color(0xFFE5E7EB),
+          width: isSpotlight ? 1.5 : 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: isSpotlight ? 0.08 : 0.04),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -1256,7 +1597,7 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Store Image with Discount Badge
+          // Store Image with Discount Badge & Spotlight Tag
           Stack(
             children: [
               ClipRRect(
@@ -1301,6 +1642,35 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                   ),
                 ),
               ),
+              // Spotlight Sponsored Badge on Top Left
+              if (isSpotlight)
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.star, color: Colors.amber, size: 9),
+                        SizedBox(width: 2),
+                        Text(
+                          'SPOTLIGHT',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
 
@@ -1339,12 +1709,16 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                     const SizedBox(width: 4),
                     const Text('·', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.bold)),
                     const SizedBox(width: 4),
-                    Text(
-                      distance,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: AppTheme.textSecondary,
-                        fontWeight: FontWeight.w500,
+                    Flexible(
+                      child: Text(
+                        distance,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: AppTheme.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
@@ -1393,7 +1767,12 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                   width: double.infinity,
                   height: 30,
                   child: OutlinedButton(
-                    onPressed: () => context.push('/shop/$id'),
+                    onPressed: () {
+                      if (adId != null) {
+                        ref.read(advertisementProvider.notifier).recordClick(adId);
+                      }
+                      context.push('/shop/$id');
+                    },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.primaryColor,
                       side: const BorderSide(color: Color(0xFFFFD1D8)),

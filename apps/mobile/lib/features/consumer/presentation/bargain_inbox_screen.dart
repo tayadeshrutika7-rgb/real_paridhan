@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../domain/bargain_model.dart';
 import 'bargain_controller.dart';
+import 'cart_controller.dart';
 
 /// Bargain inbox — shows all active bargains for consumer or seller.
 class BargainInboxScreen extends ConsumerStatefulWidget {
@@ -34,10 +35,12 @@ class _BargainInboxScreenState extends ConsumerState<BargainInboxScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authProvider);
+    final isGuest = authState.isGuest || authState.user == null || (authState.user?.id.startsWith('guest') ?? true);
     final bargainState = ref.watch(bargainProvider);
     final bargains = widget.isSellerView
         ? bargainState.sellerBargains
-        : bargainState.consumerBargains;
+        : (isGuest ? const <Bargain>[] : bargainState.consumerBargains);
 
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
@@ -50,24 +53,27 @@ class _BargainInboxScreenState extends ConsumerState<BargainInboxScreen> {
           onPressed: () => context.pop(),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              final userId = ref.read(authProvider).user?.id;
-              if (userId == null) return;
-              if (widget.isSellerView) {
-                ref.read(bargainProvider.notifier).loadSellerBargains(userId);
-              } else {
-                ref.read(bargainProvider.notifier).loadConsumerBargains(userId);
-              }
-            },
-          ),
+          if (!isGuest)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () {
+                final userId = ref.read(authProvider).user?.id;
+                if (userId == null) return;
+                if (widget.isSellerView) {
+                  ref.read(bargainProvider.notifier).loadSellerBargains(userId);
+                } else {
+                  ref.read(bargainProvider.notifier).loadConsumerBargains(userId);
+                }
+              },
+            ),
         ],
       ),
-      body: bargainState.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : bargains.isEmpty
-              ? _EmptyState(isSellerView: widget.isSellerView)
+      body: isGuest && !widget.isSellerView
+          ? _buildGuestLockedState(context)
+          : bargainState.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : bargains.isEmpty
+                  ? _EmptyState(isSellerView: widget.isSellerView)
               : RefreshIndicator(
                   onRefresh: () async {
                     final userId = ref.read(authProvider).user?.id;
@@ -96,9 +102,75 @@ class _BargainInboxScreenState extends ConsumerState<BargainInboxScreen> {
                 ),
     );
   }
+
+  Widget _buildGuestLockedState(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.local_offer_outlined,
+                size: 64,
+                color: AppTheme.primaryColor,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Sign In to Bargain with Boutiques',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Guest users cannot initiate or track live price bargains. Sign in to your Paridhan account to negotiate prices directly with local shopkeepers.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 28),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => context.push('/login'),
+                  icon: const Icon(Icons.login_rounded),
+                  label: const Text(
+                    'Sign In to Account',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _BargainCard extends StatelessWidget {
+class _BargainCard extends ConsumerWidget {
   final Bargain bargain;
   final bool isSellerView;
   final VoidCallback onTap;
@@ -110,7 +182,7 @@ class _BargainCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final statusColor = _statusColor(bargain.status);
     final savings = bargain.basePrice - bargain.consumerOffer;
     final savingsPct = savings / bargain.basePrice * 100;
@@ -263,6 +335,53 @@ class _BargainCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (bargain.status == BargainStatus.accepted && !isSellerView)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                  border: Border(top: BorderSide(color: Colors.green.shade200)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Deal Accepted (₹${(bargain.agreedPrice ?? bargain.consumerOffer).toStringAsFixed(0)})',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                      icon: const Icon(Icons.shopping_bag_outlined, size: 14),
+                      label: const Text('View Bag ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: () async {
+                        await ref.read(cartProvider.notifier).addBargainDealToCart(bargain);
+                        if (context.mounted) {
+                          context.push('/cart');
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

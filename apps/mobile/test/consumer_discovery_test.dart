@@ -55,7 +55,7 @@ void main() {
 
       // Verify Home Discovery Elements
       expect(find.text('Nearby Boutiques (PostGIS)'), findsOneWidget);
-      expect(find.text('Jaipur Heritage Handlooms'), findsWidgets);
+      expect(find.textContaining('Heritage Handlooms'), findsWidgets);
       expect(find.text('Pure Cotton Handblock Anarkali Kurta'), findsWidgets);
 
       // Tap on the product

@@ -4,6 +4,7 @@ import '../../../core/utils/image_compressor.dart';
 import '../domain/shop_model.dart';
 import '../domain/product_model.dart';
 import '../domain/variant_model.dart';
+import '../../consumer/data/consumer_repository.dart';
 
 class SellerRepository {
   // In-memory cache for offline/mock dev
@@ -21,8 +22,16 @@ class SellerRepository {
       id: 'shop-jaipur-01',
       sellerId: 'mock-user-123',
       name: 'Jaipur Heritage Handlooms',
+      ownerName: 'Rajesh Sharma',
       description: 'Authentic Rajasthani handblock prints, Bandhani sarees, and festive kurtas.',
+      logoUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=400',
+      bannerUrl: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=1200',
       address: 'Shop 14, Johari Bazaar, Pink City, Jaipur, Rajasthan 302003',
+      contactPhone: '+91 98290 12345',
+      contactEmail: 'rajesh.handlooms@jaipur.in',
+      bankAccountNumber: '91827364501234',
+      bankIfsc: 'HDFC0001234',
+      bankName: 'HDFC Bank - Johari Bazaar Branch',
       latitude: 26.9200,
       longitude: 75.8267,
       status: 'verified',
@@ -119,6 +128,23 @@ class SellerRepository {
     }
   }
 
+  static void updateMockShopStatus({
+    required String status,
+    required String kycStatus,
+    String? reason,
+    String? notes,
+  }) {
+    if (_mockShop != null) {
+      _mockShop = _mockShop!.copyWith(
+        status: status,
+        kycStatus: kycStatus,
+        kycRejectionReason: reason,
+        kycNotes: notes,
+        kycVerifiedAt: status == 'verified' ? DateTime.now() : null,
+      );
+    }
+  }
+
   Future<ShopModel> saveShop(ShopModel shop) async {
     final client = SupabaseService.client;
     if (client == null) {
@@ -129,7 +155,9 @@ class SellerRepository {
     try {
       final data = shop.toJson();
       final res = await client.from('shops').upsert(data).select().single();
-      return ShopModel.fromJson(res);
+      final updated = ShopModel.fromJson(res);
+      _mockShop = updated;
+      return updated;
     } catch (e) {
       debugPrint('[SellerRepository] Error saving shop: $e');
       _mockShop = shop;
@@ -181,6 +209,7 @@ class SellerRepository {
       } else {
         _mockProducts.insert(0, updatedProduct);
       }
+      ConsumerRepository.addOrUpdateMockProduct(updatedProduct);
       return updatedProduct;
     }
 
@@ -197,7 +226,15 @@ class SellerRepository {
         savedVariants.add(VariantModel.fromJson(varRes));
       }
 
-      return createdProduct.copyWith(variants: savedVariants);
+      final fullProduct = createdProduct.copyWith(variants: savedVariants);
+      final index = _mockProducts.indexWhere((p) => p.id == product.id);
+      if (index >= 0) {
+        _mockProducts[index] = fullProduct;
+      } else {
+        _mockProducts.insert(0, fullProduct);
+      }
+      ConsumerRepository.addOrUpdateMockProduct(fullProduct);
+      return fullProduct;
     } catch (e) {
       debugPrint('[SellerRepository] Error creating product: $e');
       return product.copyWith(variants: variants);

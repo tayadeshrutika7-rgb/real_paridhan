@@ -30,7 +30,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     // Verify Guest Consumer Discovery elements
-    expect(find.textContaining('Jaipur'), findsWidgets);
+    expect(find.textContaining('Paridhan'), findsWidgets);
     expect(find.text('Sign In'), findsOneWidget);
     expect(find.text('Shop by Category'), findsOneWidget);
     expect(find.text('Women Ethnic'), findsOneWidget);

@@ -83,51 +83,50 @@ class OrderRepository {
 
   Future<List<AddressModel>> getAddresses(String userId) async {
     final client = SupabaseService.client;
-    if (client == null) {
+    if (client == null || userId.isEmpty || userId.startsWith('guest') || userId.length < 32) {
       return List.from(_mockAddresses);
     }
 
     try {
       final res = await client
-          .from('delivery_addresses')
+          .from('addresses')
           .select()
-          .eq('user_id', userId)
+          .eq('consumer_id', userId)
           .order('is_default', ascending: false);
 
       return (res as List)
           .map((e) => AddressModel.fromJson(e as Map<String, dynamic>))
           .toList();
-    } catch (e) {
-      debugPrint('[OrderRepository] Error getting addresses: $e');
+    } catch (_) {
       return List.from(_mockAddresses);
     }
   }
 
   Future<AddressModel> saveAddress(AddressModel address) async {
-    final client = SupabaseService.client;
-    if (client == null) {
-      final idx = _mockAddresses.indexWhere((a) => a.id == address.id);
-      if (idx >= 0) {
-        _mockAddresses[idx] = address;
-      } else {
-        final newAddr = address.copyWith(id: 'addr-${DateTime.now().millisecondsSinceEpoch}');
-        _mockAddresses.insert(0, newAddr);
-        return newAddr;
-      }
-      return address;
+    final idx = _mockAddresses.indexWhere((a) => a.id == address.id);
+    if (idx >= 0) {
+      _mockAddresses[idx] = address;
+    } else {
+      _mockAddresses.insert(0, address);
     }
 
-    try {
-      final data = await client
-          .from('delivery_addresses')
-          .upsert(address.toJson())
-          .select()
-          .single();
-      return AddressModel.fromJson(data);
-    } catch (e) {
-      debugPrint('[OrderRepository] Error saving address: $e');
-      return address;
+    final client = SupabaseService.client;
+    if (client != null && address.userId.isNotEmpty && !address.userId.startsWith('guest') && address.userId.length >= 32) {
+      try {
+        await client.from('addresses').upsert({
+          'consumer_id': address.userId,
+          'full_name': address.fullName,
+          'phone': address.phone,
+          'address_line1': address.addressLine1,
+          'address_line2': address.addressLine2,
+          'city': address.city,
+          'state': address.state,
+          'pincode': address.pincode,
+          'is_default': address.isDefault,
+        });
+      } catch (_) {}
     }
+    return address;
   }
 
   // ---------------------------------------------------------------------------
@@ -222,6 +221,12 @@ class OrderRepository {
         'bargain_id': c.bargainId,
       }).toList();
 
+      try {
+        await client.from('order_items').insert(itemsToInsert);
+      } catch (e) {
+        debugPrint('[OrderRepository] order_items insert note: $e');
+      }
+
       // 3. Create dispatch request in deliveries table
       try {
         await client.from('deliveries').insert({
@@ -253,7 +258,7 @@ class OrderRepository {
 
   Future<List<OrderModel>> getConsumerOrders(String consumerId) async {
     final client = SupabaseService.client;
-    if (client == null) {
+    if (client == null || consumerId.isEmpty || consumerId.startsWith('guest') || consumerId.length < 32) {
       return List.from(_mockOrders);
     }
 

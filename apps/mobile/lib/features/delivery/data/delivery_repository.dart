@@ -11,7 +11,28 @@ class DeliveryRepository {
 
   // In-memory simulation cache for offline mock mode
   static bool _simulatedDutyOnline = true;
+  static String _simulatedVerificationStatus = 'verified';
   static DeliveryTaskModel? _simulatedActiveTrip;
+
+  static void setSimulatedVerificationStatus(String status) {
+    _simulatedVerificationStatus = status;
+  }
+
+  Future<String> getDriverVerificationStatus(String driverId) async {
+    if (_client == null) return _simulatedVerificationStatus;
+
+    try {
+      final res = await _client
+          .from('delivery_partner_profile')
+          .select('verification_status')
+          .eq('id', driverId)
+          .maybeSingle();
+
+      return res?['verification_status'] as String? ?? 'pending';
+    } catch (_) {
+      return _simulatedVerificationStatus;
+    }
+  }
   static final List<DeliveryTaskModel> _simulatedAvailableRequests = [
     DeliveryTaskModel(
       id: 'task-jpr-101',
@@ -254,7 +275,7 @@ class DeliveryRepository {
     if (_client == null) {
       final index = _simulatedAvailableRequests.indexWhere((t) => t.id == taskId);
       if (index != -1) {
-        final task = _simulatedAvailableRequests.removeAt(index).copyWith(
+        final task = _simulatedAvailableRequests[index].copyWith(
               status: DeliveryTaskStatus.accepted,
               deliveryPartnerId: driverId,
               acceptedAt: DateTime.now(),

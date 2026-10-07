@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/supabase_client.dart';
 import '../domain/user_profile.dart';
@@ -139,7 +140,10 @@ class AuthNotifier extends Notifier<AuthState> {
         state = state.copyWith(isLoading: false);
         return true;
       }
-      state = state.copyWith(isLoading: false, errorMessage: 'Invalid credentials');
+      state = state.copyWith(isLoading: false, errorMessage: 'Invalid email or password.');
+      return false;
+    } on AuthException catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.message);
       return false;
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
@@ -152,11 +156,11 @@ class AuthNotifier extends Notifier<AuthState> {
       case UserRole.admin:
         return signInWithEmail(email: 'admin@paridhan.com', password: 'password123');
       case UserRole.seller:
-        return signInWithEmail(email: 'seller@paridhan.com', password: 'password123');
+        return signInWithEmail(email: 'seller3@gm.com', password: 'seller3@gm.com');
       case UserRole.delivery:
-        return signInWithEmail(email: 'delivery@paridhan.com', password: 'password123');
+        return signInWithEmail(email: 'delivery1@gm.com', password: 'delivery1@gm.com');
       case UserRole.consumer:
-        return signInWithEmail(email: 'consumer@paridhan.com', password: 'password123');
+        return signInWithEmail(email: 'buyer1@gm.com', password: 'buyer1@gm.com');
     }
   }
 
@@ -194,11 +198,23 @@ class AuthNotifier extends Notifier<AuthState> {
         },
       );
       if (res.user != null) {
-        await _loadProfile(res.user!.id);
-        state = state.copyWith(isLoading: false);
-        return true;
+        if (res.session != null) {
+          await _loadProfile(res.user!.id);
+          state = state.copyWith(isLoading: false);
+          return true;
+        } else {
+          // If email confirmation is enabled in Supabase, session is null until confirmed
+          state = state.copyWith(
+            isLoading: false,
+            errorMessage: 'Account created! If email confirmation is enabled in Supabase, please check your inbox to confirm before signing in.',
+          );
+          return false;
+        }
       }
-      state = state.copyWith(isLoading: false, errorMessage: 'Sign up failed');
+      state = state.copyWith(isLoading: false, errorMessage: 'Sign up failed. Please try again.');
+      return false;
+    } on AuthException catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.message);
       return false;
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
@@ -224,6 +240,37 @@ class AuthNotifier extends Notifier<AuthState> {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
       return false;
     }
+  }
+
+  Future<bool> updateProfile({
+    required String fullName,
+    required String phone,
+    String? avatarUrl,
+  }) async {
+    if (state.user == null) return false;
+    state = state.copyWith(isLoading: true, clearError: true);
+
+    final updated = state.user!.copyWith(
+      fullName: fullName,
+      phone: phone,
+      avatarUrl: avatarUrl ?? state.user!.avatarUrl,
+    );
+
+    final client = SupabaseService.client;
+    if (client != null && !state.user!.id.startsWith('guest')) {
+      try {
+        await client.from('profiles').update({
+          'full_name': fullName,
+          'phone': phone,
+          if (avatarUrl != null) 'avatar_url': avatarUrl,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', updated.id);
+      } catch (e) {
+        debugPrint('[AuthNotifier] Error updating profile: $e');
+      }
+    }
+    state = state.copyWith(isLoading: false, user: updated);
+    return true;
   }
 
   Future<void> acceptTerms() async {

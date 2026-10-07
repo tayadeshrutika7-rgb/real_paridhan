@@ -194,6 +194,43 @@ class _BargainChatScreenState extends ConsumerState<BargainChatScreen> {
           actorId: actorId,
           agreedPrice: agreedPrice,
         );
+
+    final acceptedBargain = bargain.copyWith(
+      status: BargainStatus.accepted,
+      agreedPrice: agreedPrice,
+    );
+    await ref.read(cartProvider.notifier).addBargainDealToCart(acceptedBargain);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '🎉 Deal Accepted at ₹${agreedPrice.toStringAsFixed(0)}! Added to Shopping Bag.',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green.shade700,
+          action: SnackBarAction(
+            label: 'View Bag',
+            textColor: Colors.white,
+            onPressed: () async {
+              await ref.read(cartProvider.notifier).addBargainDealToCart(acceptedBargain);
+              if (mounted) {
+                context.push('/cart');
+              }
+            },
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmReject(
@@ -636,20 +673,27 @@ class _TerminalBanner extends ConsumerWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.shopping_bag_outlined),
-                label: Text('View Shopping Bag (₹${bargain.agreedPrice?.toStringAsFixed(0) ?? ''})'),
+                icon: const Icon(Icons.shopping_bag_outlined, size: 20),
+                label: Text('View in Shopping Bag (₹${(bargain.agreedPrice ?? bargain.consumerOffer).toStringAsFixed(0)}) ➔'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green.shade700,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
                 onPressed: () async {
-                  await ref.read(cartProvider.notifier).loadCart();
+                  await ref.read(cartProvider.notifier).addBargainDealToCart(bargain);
                   if (context.mounted) {
                     context.push('/cart');
                   }
                 },
               ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '⚡ Deal price locked for 2 hours • 90-min Hyperlocal Delivery',
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
             ),
           ],
         ],

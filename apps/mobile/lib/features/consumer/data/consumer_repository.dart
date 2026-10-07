@@ -5,44 +5,63 @@ import '../../seller/domain/product_model.dart';
 import '../../seller/domain/variant_model.dart';
 import '../domain/nearby_shop.dart';
 import '../domain/cart_item_model.dart';
+import '../domain/wishlist_item_model.dart';
 
 class ConsumerRepository {
   // In-memory fixtures for offline / development
   static final List<NearbyShop> _mockNearbyShops = [
     const NearbyShop(
-      id: 'shop-jaipur-01',
+      id: 'shop-amravati-01',
       sellerId: 'seller-01',
-      name: 'Jaipur Heritage Handlooms',
-      description: 'Authentic Rajasthani handblock prints, Bandhani sarees, and festive kurtas.',
-      address: 'Shop 14, Johari Bazaar, Jaipur',
+      name: 'Amravati Heritage Handlooms',
+      description: 'Authentic Maharashtrian Paithani sarees, Nauvari draping, and festive kurtas.',
+      address: 'Shop 14, Rajkamal Chowk, Amravati',
       distanceMeters: 650.0,
       avgRating: 4.8,
       bannerUrl: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600',
       categoryIds: ['a0000001-0000-0000-0000-000000000004'],
     ),
     const NearbyShop(
-      id: 'shop-jaipur-02',
+      id: 'shop-amravati-02',
       sellerId: 'seller-02',
-      name: 'Pink City Silk & Weaves',
+      name: 'Vidarbha Silk & Weaves',
       description: 'Chanderi silks, bridal lehengas, and zari dupattas crafted by local artisans.',
-      address: 'Bapu Bazaar, Jaipur',
+      address: 'Jawahar Gate, Amravati',
       distanceMeters: 1400.0,
       avgRating: 4.9,
       bannerUrl: 'https://images.unsplash.com/photo-1617627143750-d86bc21e42bb?w=600',
       categoryIds: ['a0000001-0000-0000-0000-000000000004'],
     ),
     const NearbyShop(
-      id: 'shop-jaipur-03',
+      id: 'shop-amravati-03',
       sellerId: 'seller-03',
-      name: 'Khadi & Cotton Guild',
+      name: 'Khadi & Cotton Emporium',
       description: 'Handspun organic khadi shirts, kurtas, and Nehru jackets.',
-      address: 'MI Road, Jaipur',
+      address: 'Camp Road, Amravati',
       distanceMeters: 2800.0,
       avgRating: 4.6,
       bannerUrl: 'https://images.unsplash.com/photo-1516257984-b1b4d707412e?w=600',
       categoryIds: ['a0000001-0000-0000-0000-000000000001'],
     ),
   ];
+
+  static void addOrUpdateMockProduct(ProductModel product) {
+    final index = _mockCatalog.indexWhere((p) => p.id == product.id);
+    if (index >= 0) {
+      _mockCatalog[index] = product;
+    } else {
+      _mockCatalog.insert(0, product);
+    }
+  }
+
+  static void addOrUpdateMockShop(NearbyShop shop) {
+    final index = _mockNearbyShops.indexWhere((s) => s.id == shop.id);
+    if (index >= 0) {
+      _mockNearbyShops[index] = shop;
+    } else {
+      _mockNearbyShops.insert(0, shop);
+    }
+  }
 
   static final List<ProductModel> _mockCatalog = [
     const ProductModel(
@@ -150,6 +169,7 @@ class ConsumerRepository {
   ];
 
   static final List<CartItemModel> _mockCart = [];
+  static final List<WishlistItemModel> _mockWishlist = [];
 
   Future<List<NearbyShop>> getNearbyShops({
     required double latitude,
@@ -281,7 +301,7 @@ class ConsumerRepository {
 
   Future<List<CartItemModel>> getCart(String consumerId) async {
     final client = SupabaseService.client;
-    if (client == null) {
+    if (client == null || consumerId.isEmpty || consumerId.startsWith('guest') || consumerId.length < 32) {
       return List.from(_mockCart);
     }
 
@@ -292,6 +312,7 @@ class ConsumerRepository {
         variant_id,
         quantity,
         agreed_price,
+        bargain_id,
         product_variants (
           size,
           color,
@@ -341,6 +362,7 @@ class ConsumerRepository {
           unitPrice: (variant['price_override'] as num?)?.toDouble() ??
               (product['base_price'] as num?)?.toDouble() ?? 0.0,
           agreedPrice: (item['agreed_price'] as num?)?.toDouble(),
+          bargainId: item['bargain_id'] as String?,
           shopId: shop['id'] as String? ?? '',
           shopName: shop['name'] as String? ?? 'Local Boutique',
         );
@@ -351,6 +373,63 @@ class ConsumerRepository {
     }
   }
 
+  Future<bool> addBargainToCart({
+    required String consumerId,
+    required dynamic bargain,
+    required double agreedPrice,
+  }) async {
+    final client = SupabaseService.client;
+    final item = CartItemModel(
+      id: 'cart-${bargain.id}',
+      consumerId: consumerId,
+      variantId: bargain.variantId?.isNotEmpty == true ? bargain.variantId : 'var-${bargain.id}',
+      productId: bargain.productId?.isNotEmpty == true ? bargain.productId : 'prod-${bargain.id}',
+      productTitle: bargain.productTitle ?? 'Handcrafted Garment',
+      size: bargain.variantLabel ?? 'Standard',
+      color: 'Standard',
+      quantity: 1,
+      imageUrl: bargain.productImageUrl ?? 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=400',
+      unitPrice: (bargain.basePrice != null && bargain.basePrice > 0) ? bargain.basePrice : agreedPrice,
+      agreedPrice: agreedPrice,
+      bargainId: bargain.id,
+      shopId: bargain.sellerId?.isNotEmpty == true ? bargain.sellerId : 'shop-amravati',
+      shopName: 'Local Boutique',
+    );
+
+    final existingIndex = _mockCart.indexWhere(
+      (c) => (bargain.variantId != null && bargain.variantId.isNotEmpty && c.variantId == bargain.variantId) ||
+             (c.bargainId == bargain.id) ||
+             (bargain.productId != null && bargain.productId.isNotEmpty && c.productId == bargain.productId),
+    );
+    if (existingIndex >= 0) {
+      _mockCart[existingIndex] = item;
+    } else {
+      _mockCart.insert(0, item);
+    }
+
+    if (client == null || consumerId.isEmpty || consumerId.startsWith('guest') || consumerId.length < 32) {
+      return true;
+    }
+
+    try {
+      final upsertData = <String, dynamic>{
+        'consumer_id': consumerId,
+        'variant_id': bargain.variantId,
+        'quantity': 1,
+        'agreed_price': agreedPrice,
+        'bargain_id': bargain.id,
+      };
+      if (bargain.productId != null && bargain.productId.isNotEmpty) {
+        upsertData['product_id'] = bargain.productId;
+      }
+      await client.from('cart_items').upsert(upsertData, onConflict: 'consumer_id,variant_id');
+      return true;
+    } catch (e) {
+      debugPrint('[ConsumerRepository] Error saving bargain to cart_items: $e');
+      return false;
+    }
+  }
+
   Future<bool> addToCart({
     required String consumerId,
     required ProductModel product,
@@ -358,6 +437,9 @@ class ConsumerRepository {
     int quantity = 1,
     double? agreedPrice,
   }) async {
+    if (consumerId.isEmpty || consumerId.startsWith('guest')) {
+      return false;
+    }
     final client = SupabaseService.client;
     if (client == null) {
       final existingIndex = _mockCart.indexWhere((c) => c.variantId == variant.id);
@@ -467,6 +549,150 @@ class ConsumerRepository {
     } catch (e) {
       debugPrint('[ConsumerRepository] Error removing cart item: $e');
       return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wishlist Operations
+  // ---------------------------------------------------------------------------
+
+  Future<List<WishlistItemModel>> getWishlist(String consumerId) async {
+    if (consumerId.isEmpty || consumerId.startsWith('guest')) {
+      return [];
+    }
+    final client = SupabaseService.client;
+    if (client == null || consumerId.length < 32) {
+      return List.from(_mockWishlist);
+    }
+
+    try {
+      final res = await client.from('wishlist_items').select('''
+        id,
+        consumer_id,
+        product_id,
+        variant_id,
+        target_discount_note,
+        created_at,
+        product_variants (
+          size,
+          color,
+          stock_qty,
+          price_override,
+          image_urls,
+          products (
+            id,
+            title,
+            base_price,
+            min_bargain_price,
+            bargain_enabled,
+            product_images (
+              url
+            ),
+            shops (
+              id,
+              name
+            )
+          )
+        )
+      ''').eq('consumer_id', consumerId).order('created_at', ascending: false);
+
+      return (res as List<dynamic>).map((item) {
+        final variant = item['product_variants'] as Map<String, dynamic>? ?? {};
+        final product = variant['products'] as Map<String, dynamic>? ?? {};
+        final shop = product['shops'] as Map<String, dynamic>? ?? {};
+        final variantImages = (variant['image_urls'] as List<dynamic>?) ?? [];
+        final prodImages = (product['product_images'] as List<dynamic>?) ?? [];
+
+        String imgUrl = '';
+        if (variantImages.isNotEmpty && variantImages.first is String && (variantImages.first as String).isNotEmpty) {
+          imgUrl = variantImages.first as String;
+        } else if (prodImages.isNotEmpty && prodImages.first is Map && (prodImages.first['url'] as String?)?.isNotEmpty == true) {
+          imgUrl = prodImages.first['url'] as String;
+        } else {
+          imgUrl = 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600';
+        }
+
+        final double basePrice = (product['base_price'] as num?)?.toDouble() ?? 0.0;
+        final double originalPrice = (basePrice * 1.35).roundToDouble();
+
+        return WishlistItemModel(
+          id: item['id'] as String,
+          consumerId: item['consumer_id'] as String,
+          productId: item['product_id'] as String? ?? product['id'] as String? ?? '',
+          variantId: item['variant_id'] as String? ?? '',
+          productTitle: product['title'] as String? ?? 'Ethnic Garment',
+          shopId: shop['id'] as String? ?? 'shop-amravati',
+          shopName: shop['name'] as String? ?? 'Johari Royal Heritage Boutique',
+          size: variant['size'] as String? ?? 'M',
+          color: variant['color'] as String? ?? 'Crimson Red',
+          imageUrl: imgUrl,
+          originalPrice: originalPrice > basePrice ? originalPrice : basePrice * 1.25,
+          currentPrice: basePrice,
+          minBargainPrice: (product['min_bargain_price'] as num?)?.toDouble(),
+          bargainEnabled: product['bargain_enabled'] as bool? ?? true,
+          targetDiscountNote: item['target_discount_note'] as String? ?? 'Waiting for discount / price drop',
+          createdAt: item['created_at'] != null ? DateTime.tryParse(item['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+          stockQty: variant['stock_qty'] as int? ?? 5,
+        );
+      }).toList();
+    } catch (e) {
+      debugPrint('[ConsumerRepository] Error fetching wishlist from Supabase, using mock cache: $e');
+      return List.from(_mockWishlist);
+    }
+  }
+
+  Future<bool> addToWishlist(WishlistItemModel item) async {
+    if (item.consumerId.isEmpty || item.consumerId.startsWith('guest')) {
+      return false;
+    }
+    final client = SupabaseService.client;
+    
+    // Always store in memory cache first for immediate offline/responsive experience
+    final existingIdx = _mockWishlist.indexWhere(
+      (w) => w.productId == item.productId && (item.variantId.isEmpty || w.variantId == item.variantId),
+    );
+    if (existingIdx >= 0) {
+      _mockWishlist[existingIdx] = item;
+    } else {
+      _mockWishlist.insert(0, item);
+    }
+
+    if (client == null || item.consumerId.length < 32) {
+      return true;
+    }
+
+    try {
+      final upsertData = <String, dynamic>{
+        'consumer_id': item.consumerId,
+        'product_id': item.productId,
+        'variant_id': item.variantId,
+        'target_discount_note': item.targetDiscountNote,
+      };
+      await client.from('wishlist_items').upsert(upsertData, onConflict: 'consumer_id,variant_id');
+      return true;
+    } catch (e) {
+      debugPrint('[ConsumerRepository] Supabase wishlist upsert fallback: $e');
+      return true;
+    }
+  }
+
+  Future<bool> removeFromWishlist(String wishlistItemId, {String? consumerId, String? productId, String? variantId}) async {
+    final client = SupabaseService.client;
+    
+    _mockWishlist.removeWhere((w) =>
+        w.id == wishlistItemId ||
+        (productId != null && w.productId == productId && (variantId == null || w.variantId == variantId)));
+
+    if (client == null || wishlistItemId.startsWith('wish-mock') || wishlistItemId.startsWith('w-')) {
+      return true;
+    }
+
+    try {
+      await client.from('wishlist_items').delete().eq('id', wishlistItemId);
+      return true;
+    } catch (e) {
+      debugPrint('[ConsumerRepository] Error removing wishlist item: $e');
+      return true;
     }
   }
 }

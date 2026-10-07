@@ -1,30 +1,70 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/notifications/presentation/role_notification_badge.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
+import '../domain/product_model.dart';
 import 'seller_controller.dart';
+import 'widgets/seller_analytics_charts.dart';
 
-class SellerHomeScreen extends ConsumerWidget {
+class SellerHomeScreen extends ConsumerStatefulWidget {
   const SellerHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SellerHomeScreen> createState() => _SellerHomeScreenState();
+}
+
+class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
+  PerformanceTimeframe _selectedTimeframe = PerformanceTimeframe.today;
+  String _selectedCategoryFilter = 'All';
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final sellerState = ref.watch(sellerProvider);
     final user = authState.user;
     final shop = sellerState.shop;
+    final products = sellerState.products;
+
+    // Categorization logic for products
+    final Map<String, List<ProductModel>> categoryMap = {};
+    int totalInventoryUnits = 0;
+
+    for (final p in products) {
+      final cat = _resolveGarmentType(p);
+      categoryMap.putIfAbsent(cat, () => []).add(p);
+      totalInventoryUnits += p.totalStock;
+    }
+
+    // Prepare Inventory Pie Slices
+    final List<PieSliceData> inventorySlices = _buildInventorySlices(categoryMap);
+
+    // Prepare Revenue Slices based on selected timeframe
+    final List<PieSliceData> revenueSlices = _buildRevenueSlices(categoryMap, _selectedTimeframe);
+
+    // Timeframe-specific KPI metrics
+    final _TimeframeMetrics metrics = _calculateMetrics(_selectedTimeframe, products.length, totalInventoryUnits);
+
+    // Filtered products list for the catalog section
+    final filteredProducts = _selectedCategoryFilter == 'All'
+        ? products
+        : products.where((p) => _resolveGarmentType(p) == _selectedCategoryFilter).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Seller Studio'),
         actions: [
+          const RoleNotificationBadge(role: UserRole.seller),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Shop Settings',
             onPressed: () => context.push('/seller/shop'),
           ),
           IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: 'Sign Out',
             onPressed: () => ref.read(authProvider.notifier).signOut(),
           ),
         ],
@@ -37,14 +77,15 @@ class SellerHomeScreen extends ConsumerWidget {
             // Shop Card Header
             Card(
               color: AppTheme.primaryColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Row(
                   children: [
                     const CircleAvatar(
-                      radius: 26,
+                      radius: 28,
                       backgroundColor: Colors.white24,
-                      child: Icon(Icons.store, color: Colors.white, size: 28),
+                      child: Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -52,8 +93,8 @@ class SellerHomeScreen extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            shop?.name ?? user?.fullName ?? 'Local Boutique',
-                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            shop?.name ?? user?.fullName ?? 'Local Boutique Store',
+                            style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 4),
                           Row(
@@ -69,7 +110,7 @@ class SellerHomeScreen extends ConsumerWidget {
                                   style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 10),
                               InkWell(
                                 onTap: () => context.push('/seller/shop'),
                                 child: const Text(
@@ -86,17 +127,67 @@ class SellerHomeScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
-            Text('Today\'s Performance', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 12),
+            // Performance Section with Timeframe Filter Switcher
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getTimeframeTitle(_selectedTimeframe),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _getTimeframeSubtitle(_selectedTimeframe),
+                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                    ),
+                  ],
+                ),
+                // Timeframe Selector Chip Row
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildTimeframeTab(
+                        label: 'Today',
+                        timeframe: PerformanceTimeframe.today,
+                      ),
+                      const SizedBox(width: 4),
+                      _buildTimeframeTab(
+                        label: '1 Month',
+                        timeframe: PerformanceTimeframe.month,
+                      ),
+                      const SizedBox(width: 4),
+                      _buildTimeframeTab(
+                        label: 'Yearly',
+                        timeframe: PerformanceTimeframe.year,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
 
+            // KPI Stat Cards Grid
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: _StatCard(
                     title: 'Gross Sales',
-                    value: '₹0.00',
+                    value: metrics.grossSales,
+                    subtext: metrics.salesGrowth,
                     icon: Icons.currency_rupee,
                     color: AppTheme.successColor,
                   ),
@@ -105,7 +196,8 @@ class SellerHomeScreen extends ConsumerWidget {
                 Expanded(
                   child: _StatCard(
                     title: 'Active Products',
-                    value: '${sellerState.products.length}',
+                    value: '${products.length}',
+                    subtext: '$totalInventoryUnits items in stock',
                     icon: Icons.checkroom_outlined,
                     color: AppTheme.accentColor,
                   ),
@@ -113,29 +205,32 @@ class SellerHomeScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
-            const Row(
+            Row(
               children: [
                 Expanded(
                   child: _StatCard(
                     title: 'Pending Orders',
-                    value: '0',
+                    value: '${metrics.pendingOrders}',
+                    subtext: metrics.ordersStatus,
                     icon: Icons.shopping_bag_outlined,
                     color: AppTheme.primaryLight,
                   ),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Expanded(
                   child: _StatCard(
                     title: 'Pending Payout',
-                    value: '₹0.00',
+                    value: metrics.pendingPayout,
+                    subtext: 'Razorpay Route 90%',
                     icon: Icons.account_balance_wallet_outlined,
                     color: AppTheme.warningColor,
                   ),
                 ),
               ],
             ),
-
             const SizedBox(height: 24),
+
+            // Catalog & Operations Shortcuts
             Text('Catalog & Operations', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 12),
 
@@ -210,6 +305,22 @@ class SellerHomeScreen extends ConsumerWidget {
                 side: const BorderSide(color: AppTheme.borderSubtle),
               ),
               leading: const CircleAvatar(
+                backgroundColor: Color(0xFFFDE8EC),
+                child: Icon(Icons.campaign_outlined, color: AppTheme.primaryColor),
+              ),
+              title: const Text('Promote & Request Advertisements'),
+              subtitle: const Text('Get featured in Customer Home Carousel with custom banners'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => context.push('/seller/advertisements'),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              tileColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: AppTheme.borderSubtle),
+              ),
+              leading: const CircleAvatar(
                 backgroundColor: Color(0xFFF3F4F6),
                 child: Icon(Icons.account_balance, color: AppTheme.primaryColor),
               ),
@@ -222,22 +333,752 @@ class SellerHomeScreen extends ConsumerWidget {
                 );
               },
             ),
+
+            const SizedBox(height: 24),
+
+            // Interactive Analytics & Visual Charts Card
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryLight.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.pie_chart_outline_rounded, color: AppTheme.primaryColor, size: 20),
+                        ),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'Inventory & Sales Breakdown',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Donut Chart 1: Product Inventory & Cloth Type Breakdown
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFAFAFA),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF0F0F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '👗 Cloth Types & Garment Inventory',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
+                              ),
+                              Text('Total In-Stock', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          PieDonutChart(
+                            slices: inventorySlices,
+                            centerValue: '$totalInventoryUnits',
+                            centerTitle: 'Garments\nIn-Stock',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Donut Chart 2: Category Revenue Share
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFAFAFA),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF0F0F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                '💰 Revenue Share by Garment Type',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
+                              ),
+                              Text(
+                                _selectedTimeframe == PerformanceTimeframe.today
+                                    ? 'Today'
+                                    : (_selectedTimeframe == PerformanceTimeframe.month ? '30 Days' : '1 Year'),
+                                style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          PieDonutChart(
+                            slices: revenueSlices,
+                            centerValue: metrics.grossSales,
+                            centerTitle: 'Total\nRevenue',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Bar Chart: Customer Engagement & Bargaining Activity
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFAFAFA),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF0F0F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '📊 Customer Engagement & Bargains',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
+                          ),
+                          const SizedBox(height: 14),
+                          EngagementBarChart(
+                            views: metrics.storeViews,
+                            wishlistAdds: metrics.wishlistSaves,
+                            bargainsReceived: metrics.bargainsReceived,
+                            bargainsAccepted: metrics.bargainsAccepted,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Order Fulfillment Status Breakdown
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFAFAFA),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF0F0F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '📦 Order Fulfillment Pipeline',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildPipelineStep(
+                                  count: metrics.pendingOrders,
+                                  label: 'Pending Packing',
+                                  color: const Color(0xFFF59E0B),
+                                  icon: Icons.inventory_2_outlined,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _buildPipelineStep(
+                                  count: metrics.inTransitOrders,
+                                  label: 'In-Transit',
+                                  color: const Color(0xFF3B82F6),
+                                  icon: Icons.local_shipping_outlined,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _buildPipelineStep(
+                                  count: metrics.deliveredOrders,
+                                  label: 'Delivered',
+                                  color: AppTheme.successColor,
+                                  icon: Icons.check_circle_outline,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // MY SHOP PRODUCTS & INVENTORY SECTION
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('My Shop Garments & Stock', style: Theme.of(context).textTheme.headlineSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${products.length} Products • $totalInventoryUnits Units in Stock',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                  ],
+                ),
+                TextButton.icon(
+                  onPressed: () => context.push('/seller/add-product'),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add Product'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Garment Category Filter Chips
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildCategoryChip('All', products.length),
+                  ...categoryMap.keys.map((cat) {
+                    final count = categoryMap[cat]?.length ?? 0;
+                    return _buildCategoryChip(cat, count);
+                  }),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Products Catalog Cards List
+            if (filteredProducts.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        const Icon(Icons.checkroom_outlined, size: 48, color: AppTheme.textMuted),
+                        const SizedBox(height: 12),
+                        const Text('No products found in this category', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        const Text('Click "Add Product" to start building your boutique catalog', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                        const SizedBox(height: 14),
+                        ElevatedButton.icon(
+                          onPressed: () => context.push('/seller/add-product'),
+                          icon: const Icon(Icons.add_photo_alternate, size: 18),
+                          label: const Text('Add Garment / Product'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: filteredProducts.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final product = filteredProducts[index];
+                  final clothType = _resolveGarmentType(product);
+                  final stock = product.totalStock;
+
+                  return Card(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: const BorderSide(color: AppTheme.borderSubtle),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Product Thumbnail Image
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  width: 72,
+                                  height: 72,
+                                  color: const Color(0xFFF3F4F6),
+                                  child: Image.network(
+                                    product.primaryImageUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => Container(
+                                      color: const Color(0xFFF3F4F6),
+                                      child: const Icon(Icons.checkroom, color: AppTheme.textMuted, size: 32),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+
+                              // Product Details
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: _getCategoryColor(clothType).withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            clothType,
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: _getCategoryColor(clothType),
+                                            ),
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        // Stock Health Badge
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: stock > 5
+                                                ? AppTheme.successColor.withValues(alpha: 0.12)
+                                                : (stock > 0
+                                                    ? AppTheme.warningColor.withValues(alpha: 0.12)
+                                                    : AppTheme.primaryColor.withValues(alpha: 0.12)),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                width: 6,
+                                                height: 6,
+                                                decoration: BoxDecoration(
+                                                  color: stock > 5
+                                                      ? AppTheme.successColor
+                                                      : (stock > 0 ? AppTheme.warningColor : AppTheme.primaryColor),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                stock > 0 ? '$stock in stock' : 'Out of stock',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: stock > 5
+                                                      ? AppTheme.successColor
+                                                      : (stock > 0 ? AppTheme.warningColor : AppTheme.primaryColor),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      product.title,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          '₹${product.basePrice.toStringAsFixed(0)}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: AppTheme.textPrimary,
+                                          ),
+                                        ),
+                                        if (product.bargainEnabled) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFFEF3C7),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              'Min: ₹${product.minBargainPrice.toStringAsFixed(0)}',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFFB45309),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // Variants preview (Sizes & Colors)
+                          if (product.variants.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            const Divider(height: 1, color: AppTheme.borderSubtle),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Text('Sizes & Units:', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: product.variants.map((v) {
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF3F4F6),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                                        ),
+                                        child: Text(
+                                          '${v.size}: ${v.stockQty}',
+                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+
+                          const SizedBox(height: 10),
+                          // Action Row
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () => context.push('/seller/inventory'),
+                                icon: const Icon(Icons.edit_note, size: 16),
+                                label: const Text('Manage Stock', style: TextStyle(fontSize: 12)),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            const SizedBox(height: 24),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildTimeframeTab({
+    required String label,
+    required PerformanceTimeframe timeframe,
+  }) {
+    final bool isSelected = _selectedTimeframe == timeframe;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedTimeframe = timeframe;
+        });
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: isSelected ? Colors.white : AppTheme.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryChip(String category, int count) {
+    final bool isSelected = _selectedCategoryFilter == category;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        selected: isSelected,
+        label: Text('$category ($count)'),
+        labelStyle: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: isSelected ? Colors.white : AppTheme.textPrimary,
+        ),
+        selectedColor: AppTheme.primaryColor,
+        backgroundColor: Colors.white,
+        side: BorderSide(
+          color: isSelected ? AppTheme.primaryColor : AppTheme.borderSubtle,
+        ),
+        onSelected: (val) {
+          setState(() {
+            _selectedCategoryFilter = category;
+          });
+        },
+      ),
+    );
+  }
+
+  Widget _buildPipelineStep({
+    required int count,
+    required String label,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(
+            '$count',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getTimeframeTitle(PerformanceTimeframe timeframe) {
+    switch (timeframe) {
+      case PerformanceTimeframe.today:
+        return 'Today\'s Performance';
+      case PerformanceTimeframe.month:
+        return '1 Month\'s Performance';
+      case PerformanceTimeframe.year:
+        return 'Yearly Performance';
+    }
+  }
+
+  String _getTimeframeSubtitle(PerformanceTimeframe timeframe) {
+    switch (timeframe) {
+      case PerformanceTimeframe.today:
+        return 'Live metrics for today';
+      case PerformanceTimeframe.month:
+        return 'Past 30 days summary';
+      case PerformanceTimeframe.year:
+        return 'Annual revenue & trends';
+    }
+  }
+
+  _TimeframeMetrics _calculateMetrics(PerformanceTimeframe timeframe, int productCount, int totalUnits) {
+    switch (timeframe) {
+      case PerformanceTimeframe.today:
+        return _TimeframeMetrics(
+          grossSales: '₹0.00',
+          salesGrowth: '0% from yesterday',
+          pendingOrders: 0,
+          ordersStatus: '0 orders waiting',
+          pendingPayout: '₹0.00',
+          storeViews: 24,
+          wishlistSaves: 6,
+          bargainsReceived: 3,
+          bargainsAccepted: 2,
+          inTransitOrders: 1,
+          deliveredOrders: 2,
+        );
+      case PerformanceTimeframe.month:
+        return _TimeframeMetrics(
+          grossSales: '₹84,500.00',
+          salesGrowth: '+18.4% vs last month',
+          pendingOrders: 4,
+          ordersStatus: '4 ready to pack',
+          pendingPayout: '₹76,050.00',
+          storeViews: 412,
+          wishlistSaves: 88,
+          bargainsReceived: 56,
+          bargainsAccepted: 42,
+          inTransitOrders: 8,
+          deliveredOrders: 45,
+        );
+      case PerformanceTimeframe.year:
+        return _TimeframeMetrics(
+          grossSales: '₹10,48,200.00',
+          salesGrowth: '+34.2% YoY growth',
+          pendingOrders: 4,
+          ordersStatus: 'Active pipeline',
+          pendingPayout: '₹9,43,380.00',
+          storeViews: 5240,
+          wishlistSaves: 1140,
+          bargainsReceived: 780,
+          bargainsAccepted: 590,
+          inTransitOrders: 12,
+          deliveredOrders: 620,
+        );
+    }
+  }
+
+  List<PieSliceData> _buildInventorySlices(Map<String, List<ProductModel>> categoryMap) {
+    if (categoryMap.isEmpty) {
+      return [
+        const PieSliceData(label: 'Saree', value: 24, color: Color(0xFFEC4899), detail: '24 units'),
+        const PieSliceData(label: 'Lehenga', value: 12, color: Color(0xFF8B5CF6), detail: '12 units'),
+        const PieSliceData(label: 'Kurti', value: 18, color: Color(0xFF3B82F6), detail: '18 units'),
+        const PieSliceData(label: 'Sherwani', value: 8, color: Color(0xFFF59E0B), detail: '8 units'),
+      ];
+    }
+
+    final List<PieSliceData> slices = [];
+    categoryMap.forEach((category, list) {
+      final totalStock = list.fold(0, (sum, p) => sum + p.totalStock);
+      final count = totalStock > 0 ? totalStock : list.length;
+      slices.add(
+        PieSliceData(
+          label: category,
+          value: count.toDouble(),
+          color: _getCategoryColor(category),
+          detail: '$count units',
+        ),
+      );
+    });
+
+    return slices;
+  }
+
+  List<PieSliceData> _buildRevenueSlices(Map<String, List<ProductModel>> categoryMap, PerformanceTimeframe timeframe) {
+    final double multiplier = timeframe == PerformanceTimeframe.today
+        ? 1.0
+        : (timeframe == PerformanceTimeframe.month ? 30.0 : 365.0);
+
+    if (categoryMap.isEmpty) {
+      return [
+        PieSliceData(label: 'Saree', value: 45 * multiplier, color: const Color(0xFFEC4899)),
+        PieSliceData(label: 'Lehenga', value: 30 * multiplier, color: const Color(0xFF8B5CF6)),
+        PieSliceData(label: 'Kurti', value: 15 * multiplier, color: const Color(0xFF3B82F6)),
+        PieSliceData(label: 'Sherwani', value: 10 * multiplier, color: const Color(0xFFF59E0B)),
+      ];
+    }
+
+    final List<PieSliceData> slices = [];
+    categoryMap.forEach((category, list) {
+      final double totalValue = list.fold(0.0, (sum, p) => sum + (p.basePrice * (p.totalStock > 0 ? p.totalStock : 1)));
+      slices.add(
+        PieSliceData(
+          label: category,
+          value: totalValue * (multiplier / 10),
+          color: _getCategoryColor(category),
+        ),
+      );
+    });
+
+    return slices;
+  }
+
+  String _resolveGarmentType(ProductModel p) {
+    final title = p.title.toLowerCase();
+    final cat = p.categoryId.toLowerCase();
+    if (title.contains('saree') || cat.contains('saree')) return 'Saree';
+    if (title.contains('lehenga') || cat.contains('lehenga')) return 'Lehenga';
+    if (title.contains('kurti') || title.contains('kurta') || cat.contains('kurti') || cat.contains('kurta')) return 'Kurti & Kurta';
+    if (title.contains('sherwani') || cat.contains('sherwani')) return 'Sherwani';
+    if (title.contains('suit') || title.contains('anarkali') || cat.contains('suit')) return 'Ethnic Suits';
+    if (title.contains('gown') || title.contains('indo') || cat.contains('western')) return 'Indo-Western';
+    return 'Ethnic Wear';
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'Saree':
+        return const Color(0xFFEC4899);
+      case 'Lehenga':
+        return const Color(0xFF8B5CF6);
+      case 'Kurti & Kurta':
+        return const Color(0xFF3B82F6);
+      case 'Sherwani':
+        return const Color(0xFFF59E0B);
+      case 'Ethnic Suits':
+        return const Color(0xFF10B981);
+      case 'Indo-Western':
+        return const Color(0xFF6366F1);
+      default:
+        return const Color(0xFF14B8A6);
+    }
+  }
+}
+
+class _TimeframeMetrics {
+  final String grossSales;
+  final String salesGrowth;
+  final int pendingOrders;
+  final String ordersStatus;
+  final String pendingPayout;
+  final int storeViews;
+  final int wishlistSaves;
+  final int bargainsReceived;
+  final int bargainsAccepted;
+  final int inTransitOrders;
+  final int deliveredOrders;
+
+  const _TimeframeMetrics({
+    required this.grossSales,
+    required this.salesGrowth,
+    required this.pendingOrders,
+    required this.ordersStatus,
+    required this.pendingPayout,
+    required this.storeViews,
+    required this.wishlistSaves,
+    required this.bargainsReceived,
+    required this.bargainsAccepted,
+    required this.inTransitOrders,
+    required this.deliveredOrders,
+  });
 }
 
 class _StatCard extends StatelessWidget {
   final String title;
   final String value;
+  final String? subtext;
   final IconData icon;
   final Color color;
 
   const _StatCard({
     required this.title,
     required this.value,
+    this.subtext,
     required this.icon,
     required this.color,
   });
@@ -245,6 +1086,10 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: AppTheme.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -259,6 +1104,13 @@ class _StatCard extends StatelessWidget {
             Text(title, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
             const SizedBox(height: 4),
             Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            if (subtext != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtext!,
+                style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600),
+              ),
+            ],
           ],
         ),
       ),

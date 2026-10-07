@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../constants/app_constants.dart';
@@ -6,9 +7,11 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/forgot_password_screen.dart';
 import '../../features/legal/presentation/legal_screen.dart';
 import '../../features/consumer/presentation/consumer_home_screen.dart';
+import '../../features/consumer/presentation/consumer_profile_screen.dart';
 import '../../features/consumer/presentation/search_screen.dart';
 import '../../features/consumer/presentation/shop_profile_screen.dart';
 import '../../features/consumer/presentation/product_detail_screen.dart';
+import '../../features/consumer/presentation/wishlist_screen.dart';
 import '../../features/consumer/presentation/cart_screen.dart';
 import '../../features/consumer/presentation/checkout_screen.dart';
 import '../../features/consumer/presentation/order_history_screen.dart';
@@ -20,6 +23,7 @@ import '../../features/seller/presentation/shop_registration_screen.dart';
 import '../../features/seller/presentation/add_product_screen.dart';
 import '../../features/seller/presentation/inventory_screen.dart';
 import '../../features/seller/presentation/seller_orders_screen.dart';
+import '../../features/seller/presentation/seller_ad_request_screen.dart';
 import '../../features/delivery/presentation/delivery_home_screen.dart';
 import '../../features/delivery/presentation/active_trip_screen.dart';
 import '../../features/delivery/presentation/delivery_earnings_screen.dart';
@@ -27,6 +31,7 @@ import '../../features/admin/presentation/admin_dashboard_screen.dart';
 import '../../features/admin/presentation/admin_boutique_verification_screen.dart';
 import '../../features/admin/presentation/admin_analytics_screen.dart';
 import '../../features/admin/presentation/admin_disputes_screen.dart';
+import '../../features/admin/presentation/admin_advertisements_screen.dart';
 
 class FlavorNotifier extends Notifier<AppFlavor> {
   final AppFlavor _initial;
@@ -42,6 +47,39 @@ final appFlavorProvider = NotifierProvider<FlavorNotifier, AppFlavor>(() {
   return FlavorNotifier();
 });
 
+class RoleIsolationRouteObserver extends NavigatorObserver {
+  final Ref ref;
+  RoleIsolationRouteObserver(this.ref);
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    _clearStaleNotificationOverlays();
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+    _clearStaleNotificationOverlays();
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPop(route, previousRoute);
+    _clearStaleNotificationOverlays();
+  }
+
+  void _clearStaleNotificationOverlays() {
+    // Dismiss active transient snackbars across route transitions to guarantee clean role isolation
+    try {
+      final context = navigator?.context;
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+      }
+    } catch (_) {}
+  }
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
   final currentFlavor = ref.watch(appFlavorProvider);
@@ -49,6 +87,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
     debugLogDiagnostics: true,
+    observers: [RoleIsolationRouteObserver(ref)],
     routes: [
       GoRoute(
         path: '/',
@@ -71,6 +110,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/consumer',
+        builder: (context, state) => const ConsumerHomeScreen(),
+      ),
+      GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
       ),
@@ -88,6 +131,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       // Consumer Routes
       GoRoute(
+        path: '/profile',
+        builder: (context, state) => const ConsumerProfileScreen(),
+      ),
+      GoRoute(
         path: '/search',
         builder: (context, state) => const SearchScreen(),
       ),
@@ -102,6 +149,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => ProductDetailScreen(
           productId: state.pathParameters['id'] ?? 'prod-001',
         ),
+      ),
+      GoRoute(
+        path: '/wishlist',
+        builder: (context, state) => const WishlistScreen(),
       ),
       GoRoute(
         path: '/cart',
@@ -123,6 +174,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       // Seller Studio Routes
       GoRoute(
+        path: '/seller',
+        builder: (context, state) => const SellerHomeScreen(),
+      ),
+      GoRoute(
         path: '/seller/shop',
         builder: (context, state) => const ShopRegistrationScreen(),
       ),
@@ -137,6 +192,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/seller/orders',
         builder: (context, state) => const SellerOrdersScreen(),
+      ),
+      GoRoute(
+        path: '/seller/advertisements',
+        builder: (context, state) => const SellerAdRequestScreen(),
       ),
       // Bargaining Routes
       GoRoute(
@@ -160,6 +219,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       // Delivery Fleet Routes
+      GoRoute(
+        path: '/delivery',
+        builder: (context, state) => const DeliveryHomeScreen(),
+      ),
       GoRoute(
         path: '/delivery/trip/:id',
         builder: (context, state) => ActiveTripScreen(
@@ -186,6 +249,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/admin/disputes',
         builder: (context, state) => const AdminDisputesScreen(),
+      ),
+      GoRoute(
+        path: '/admin/advertisements',
+        builder: (context, state) => const AdminAdvertisementsScreen(),
       ),
     ],
   );

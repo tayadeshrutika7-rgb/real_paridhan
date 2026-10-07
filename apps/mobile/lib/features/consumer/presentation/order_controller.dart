@@ -3,6 +3,9 @@ import '../data/order_repository.dart';
 import '../domain/address_model.dart';
 import '../domain/cart_item_model.dart';
 import '../domain/order_model.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/notifications/domain/app_notification_model.dart';
+import '../../../core/notifications/presentation/role_notification_controller.dart';
 
 class OrderState {
   final List<AddressModel> addresses;
@@ -138,6 +141,39 @@ class OrderController extends Notifier<OrderState> {
         placedOrder: order,
         orders: [order, ...state.orders],
       );
+
+      // 1. Customer Notification
+      ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+        title: 'Order Placed Successfully',
+        body: 'Your order #${order.id.substring(0, 8)} has been placed for ₹${order.totalAmount.toStringAsFixed(0)}.',
+        category: NotificationCategory.order,
+        deepLink: '/order/${order.id}',
+      );
+
+      // 2. Seller Notification
+      ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+        title: 'New Order Received',
+        body: 'New order #${order.id.substring(0, 8)} with ${order.items.length} item(s) requires fulfillment.',
+        category: NotificationCategory.order,
+        deepLink: '/seller/orders',
+      );
+
+      // 3. Delivery Fleet Notification
+      ref.read(roleNotificationProvider(UserRole.delivery).notifier).postNotification(
+        title: 'New Delivery Assignment',
+        body: 'Pickup available for order #${order.id.substring(0, 8)} in local area.',
+        category: NotificationCategory.assignment,
+        deepLink: '/delivery/trip/${order.id}',
+      );
+
+      // 4. Admin Operations Notification
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'Platform Order Created',
+        body: 'Order #${order.id.substring(0, 8)} recorded with GMV ₹${order.totalAmount.toStringAsFixed(0)}.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin',
+      );
+
       return order;
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
@@ -192,6 +228,22 @@ class OrderController extends Notifier<OrderState> {
           sellerOrders: updatedSellerOrders,
           activeOrder: updatedActive,
           isLoading: false,
+        );
+
+        // Notify seller
+        ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+          title: 'Order Status Updated',
+          body: 'Order #${orderId.substring(0, orderId.length > 8 ? 8 : orderId.length)} status set to ${status.name.toUpperCase()}.',
+          category: NotificationCategory.order,
+          deepLink: '/seller/orders',
+        );
+
+        // Notify customer
+        ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+          title: 'Order Update',
+          body: 'Your order #${orderId.substring(0, orderId.length > 8 ? 8 : orderId.length)} is now ${status.name.toUpperCase()}.',
+          category: NotificationCategory.order,
+          deepLink: '/order/$orderId',
         );
       } else {
         state = state.copyWith(isLoading: false);

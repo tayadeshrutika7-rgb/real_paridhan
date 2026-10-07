@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/map_navigation_launcher.dart';
 import '../../seller/domain/shop_model.dart';
 import '../../seller/domain/product_model.dart';
 import '../data/consumer_repository.dart';
@@ -136,11 +137,31 @@ class _ShopProfileScreenState extends State<ShopProfileScreen> {
                               shop?.address ?? 'Johari Bazaar, Jaipur',
                               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                             ),
-                            Text(
+                            const Text(
                               'Within hyperlocal radius • Verified delivery route',
                               style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          MapNavigationLauncher.openGoogleMaps(
+                            latitude: shop?.latitude ?? 26.9200,
+                            longitude: shop?.longitude ?? 75.8267,
+                            destinationName: shop?.name ?? 'Boutique Store',
+                            address: shop?.address,
+                            context: context,
+                          );
+                        },
+                        icon: const Icon(Icons.directions, size: 16),
+                        label: const Text('Directions'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],

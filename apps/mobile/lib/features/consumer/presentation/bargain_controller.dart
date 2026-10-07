@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
+import '../../auth/presentation/auth_state.dart';
 import '../domain/bargain_model.dart';
 
 // ---------------------------------------------------------------------------
@@ -87,6 +88,12 @@ class BargainNotifier extends Notifier<BargainState> {
     required double basePrice,
     required double minBargainPrice,
   }) async {
+    final authState = ref.read(authProvider);
+    if (authState.isGuest || authState.user == null || consumerId.isEmpty || consumerId.startsWith('guest')) {
+      state = state.copyWith(errorMessage: 'Please sign in to initiate bargaining.');
+      return null;
+    }
+
     if (offerAmount < minBargainPrice) {
       state = state.copyWith(
         errorMessage:
@@ -555,7 +562,7 @@ class BargainNotifier extends Notifier<BargainState> {
     state = state.copyWith(isLoading: true, clearError: true);
     final db = _db;
 
-    if (db == null) {
+    if (db == null || consumerId.isEmpty || consumerId.startsWith('guest') || consumerId.length < 32) {
       final list = _mockBargains.values.toList();
       state = state.copyWith(consumerBargains: list, isLoading: false);
       return;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import '../../seller/domain/variant_model.dart';
 import '../data/consumer_repository.dart';
 import '../domain/review_model.dart';
 import 'cart_controller.dart';
+import 'wishlist_controller.dart';
 import 'bargain_controller.dart';
 import 'review_controller.dart';
 import 'widgets/rating_star_bar.dart';
@@ -31,10 +33,50 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   bool _isLoading = true;
   final int _selectedQuantity = 1;
 
+  // 360 Degree Interactive Spin View State
+  bool _is360Mode = false;
+  double _rotationAngle = 0.0; // 0.0 to 360.0 degrees
+  bool _isAutoSpinning = false;
+  Timer? _autoSpinTimer;
+
   @override
   void initState() {
     super.initState();
     _loadProduct();
+  }
+
+  @override
+  void dispose() {
+    _autoSpinTimer?.cancel();
+    super.dispose();
+  }
+
+  void _toggleAutoSpin() {
+    if (_isAutoSpinning) {
+      _autoSpinTimer?.cancel();
+      setState(() => _isAutoSpinning = false);
+    } else {
+      setState(() => _isAutoSpinning = true);
+      _autoSpinTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        setState(() {
+          _rotationAngle = (_rotationAngle + 2.0) % 360.0;
+        });
+      });
+    }
+  }
+
+  void _set360Angle(double angle) {
+    if (_isAutoSpinning) {
+      _autoSpinTimer?.cancel();
+      _isAutoSpinning = false;
+    }
+    setState(() {
+      _rotationAngle = angle % 360.0;
+    });
   }
 
   Future<void> _loadProduct() async {
@@ -66,7 +108,8 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     if (_product == null || _selectedVariant == null) return;
 
     final authState = ref.read(authProvider);
-    if (authState.isGuest) {
+    final isGuest = authState.isGuest || authState.user == null || (authState.user?.id.startsWith('guest') ?? true);
+    if (isGuest) {
       _showLoginPrompt('Sign in to add items to your shopping bag.');
       return;
     }
@@ -90,9 +133,80 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     );
   }
 
+  Future<void> _handleToggleWishlist(ProductModel product, VariantModel? variant) async {
+    final authState = ref.read(authProvider);
+    final isGuest = authState.isGuest || authState.user == null || (authState.user?.id.startsWith('guest') ?? true);
+    if (isGuest) {
+      _showLoginPrompt('Sign in to add items to your Wishlist and track discounts.');
+      return;
+    }
+
+    final v = variant ?? (product.variants.isNotEmpty ? product.variants.first : null);
+    if (v == null) return;
+
+    final wasAdded = await ref.read(wishlistProvider.notifier).toggleWishlist(
+      product: product,
+      variant: v,
+      shopName: product.shopName,
+    );
+
+    if (mounted) {
+      if (wasAdded) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved "${product.title}" to Wishlist! We\'ll track discounts for you.'),
+            backgroundColor: AppTheme.primaryColor,
+            action: SnackBarAction(
+              label: 'View Wishlist',
+              textColor: Colors.white,
+              onPressed: () => context.push('/wishlist'),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Removed item from Wishlist'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildWishlistSideButton(ProductModel product, VariantModel? variant, bool isWishlisted) {
+    return Tooltip(
+      message: isWishlisted ? 'Saved in Wishlist' : 'Add to Wishlist (Wait for discount)',
+      child: InkWell(
+        onTap: () => _handleToggleWishlist(product, variant),
+        borderRadius: BorderRadius.circular(24),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: isWishlisted ? AppTheme.primaryLight : const Color(0xFFF9FAFB),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isWishlisted ? AppTheme.primaryColor : const Color(0xFFD1D5DB),
+              width: 1.5,
+            ),
+          ),
+          child: Icon(
+            isWishlisted ? Icons.favorite : Icons.favorite_border_rounded,
+            color: isWishlisted ? AppTheme.primaryColor : const Color(0xFF4B5563),
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _handleBargain() {
     final authState = ref.read(authProvider);
-    if (authState.isGuest) {
+    final isGuest = authState.isGuest || authState.user == null || (authState.user?.id.startsWith('guest') ?? true);
+    if (isGuest) {
       _showLoginPrompt('Sign in to bargain directly with local boutiques.');
       return;
     }
@@ -157,7 +271,6 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -170,8 +283,12 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       );
     }
 
+    final wishlistState = ref.watch(wishlistProvider);
+    final cartState = ref.watch(cartProvider);
+
     final product = _product!;
     final variant = _selectedVariant;
+    final isWishlisted = wishlistState.isItemWishlisted(product.id, variantId: variant?.id);
     final currentPrice = variant?.effectivePrice(product.basePrice) ?? product.basePrice;
     final originalPrice = (currentPrice * 1.35).roundToDouble();
     final screenWidth = MediaQuery.of(context).size.width;
@@ -198,9 +315,42 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.shopping_bag_outlined, color: AppTheme.textPrimary),
-            onPressed: () => context.push('/cart'),
+            tooltip: isWishlisted ? 'Saved in Wishlist' : 'Add to Wishlist',
+            icon: Icon(
+              isWishlisted ? Icons.favorite : Icons.favorite_border_rounded,
+              color: isWishlisted ? AppTheme.primaryColor : AppTheme.textPrimary,
+            ),
+            onPressed: () => _handleToggleWishlist(product, variant),
           ),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                tooltip: 'Shopping Bag',
+                icon: const Icon(Icons.shopping_bag_outlined, color: AppTheme.textPrimary),
+                onPressed: () => context.push('/cart'),
+              ),
+              if (cartState.totalItems > 0)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.primaryColor,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      '${cartState.totalItems}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 6),
         ],
       ),
       body: Center(
@@ -232,6 +382,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                           variant,
                           currentPrice,
                           originalPrice,
+                          isWishlisted: isWishlisted,
                           includeInlineActions: true,
                         ),
                       ),
@@ -245,6 +396,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                     variant,
                     currentPrice,
                     originalPrice,
+                    isWishlisted: isWishlisted,
                     includeInlineActions: false,
                   ),
                 ],
@@ -257,7 +409,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       ),
       bottomNavigationBar: isDesktopOrTablet
           ? null
-          : _buildBottomActionBar(product, variant),
+          : _buildBottomActionBar(product, variant, isWishlisted),
     );
   }
 
@@ -288,98 +440,449 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // Main Preview Image
+          // Gallery Mode Switcher: Standard Photos vs 360° Spin View
           Container(
-            height: 440,
-            width: double.infinity,
-            color: const Color(0xFFFCFDFD),
-            child: Stack(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF9FAFB),
+              border: Border(bottom: BorderSide(color: Color(0xFFF3F4F6))),
+            ),
+            child: Row(
               children: [
-                Center(
-                  child: _buildGarmentImageWidget(currentDisplayImage, fit: BoxFit.contain),
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      if (_isAutoSpinning) _toggleAutoSpin();
+                      setState(() => _is360Mode = false);
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: !_is360Mode ? Colors.white : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: !_is360Mode ? AppTheme.primaryColor : Colors.transparent,
+                          width: 1.2,
+                        ),
+                        boxShadow: !_is360Mode
+                            ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.photo_library_outlined,
+                            size: 15,
+                            color: !_is360Mode ? AppTheme.primaryColor : AppTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Photos (${allImages.length})',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: !_is360Mode ? AppTheme.primaryColor : AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                // Hyperlocal Tag Badge
+                const SizedBox(width: 8),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => _is360Mode = true),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _is360Mode ? AppTheme.primaryColor : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: _is360Mode
+                            ? [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: 0.25), blurRadius: 4)]
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.threesixty_rounded,
+                            size: 18,
+                            color: _is360Mode ? Colors.white : AppTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '360° Spin View',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _is360Mode ? Colors.white : AppTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Main Display: Either 360° Interactive Canvas or Standard Photo Gallery
+          if (_is360Mode)
+            _build360InteractiveCanvas(allImages, product)
+          else ...[
+            // Main Preview Image
+            Container(
+              height: 440,
+              width: double.infinity,
+              color: const Color(0xFFFCFDFD),
+              child: Stack(
+                children: [
+                  Center(
+                    child: _buildGarmentImageWidget(currentDisplayImage, fit: BoxFit.contain),
+                  ),
+                  // Hyperlocal Tag Badge
+                  Positioned(
+                    top: 14,
+                    left: 14,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.verified_outlined, size: 13, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text(
+                            '100% Authentic Handloom',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Quick Switch to 360° floating chip
+                  Positioned(
+                    bottom: 14,
+                    left: 14,
+                    child: InkWell(
+                      onTap: () => setState(() => _is360Mode = true),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.primaryColor.withValues(alpha: 0.3),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.threesixty_rounded, size: 16, color: Colors.white),
+                            SizedBox(width: 5),
+                            Text(
+                              'Interactive 360° View',
+                              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (allImages.length > 1)
+                    Positioned(
+                      bottom: 14,
+                      right: 14,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${allImages.indexOf(currentDisplayImage) + 1} / ${allImages.length}',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Multi-Image Thumbnails
+            if (allImages.length > 1)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: Color(0xFFF3F4F6))),
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: allImages.map((img) {
+                      final isSelected = img == currentDisplayImage;
+                      return InkWell(
+                        onTap: () => setState(() => _selectedImageUrl = img),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 10),
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isSelected ? AppTheme.primaryColor : const Color(0xFFE5E7EB),
+                              width: isSelected ? 2.5 : 1,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: _buildGarmentImageWidget(img, fit: BoxFit.cover),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _build360InteractiveCanvas(List<String> allImages, ProductModel product) {
+    final imagesCount = allImages.isNotEmpty ? allImages.length : 1;
+    // Calculate which image frame corresponds to the current rotation angle
+    final int activeFrameIndex = ((_rotationAngle / 360.0) * imagesCount).floor() % imagesCount;
+    final String activeImageUrl = allImages.isNotEmpty ? allImages[activeFrameIndex] : product.primaryImageUrl;
+
+    // Relative tilt angle for 3D smooth perspective between frames
+    final double degreesPerFrame = 360.0 / imagesCount;
+    final double frameProgress = (_rotationAngle % degreesPerFrame) / degreesPerFrame;
+    final double perspectiveTilt = (frameProgress - 0.5) * 0.25; // in radians
+
+    return Column(
+      children: [
+        // Interactive 360 Turntable Area
+        GestureDetector(
+          onHorizontalDragUpdate: (details) {
+            if (_isAutoSpinning) {
+              _autoSpinTimer?.cancel();
+              _isAutoSpinning = false;
+            }
+            setState(() {
+              _rotationAngle = (_rotationAngle - details.delta.dx * 0.8) % 360.0;
+              if (_rotationAngle < 0) _rotationAngle += 360.0;
+            });
+          },
+          child: Container(
+            height: 420,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFFF9FAFB),
+                  Colors.white,
+                  AppTheme.primaryLight.withValues(alpha: 0.25),
+                ],
+              ),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Turntable Radial Pedestal Base
+                Positioned(
+                  bottom: 30,
+                  child: Container(
+                    width: 240,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.rectangle,
+                      borderRadius: BorderRadius.all(Radius.elliptical(240, 50)),
+                      gradient: RadialGradient(
+                        colors: [
+                          AppTheme.primaryColor.withValues(alpha: 0.18),
+                          AppTheme.primaryColor.withValues(alpha: 0.04),
+                          Colors.transparent,
+                        ],
+                      ),
+                      border: Border.all(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.3),
+                        width: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Rotating 3D Perspective Garment
+                Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0008)
+                    ..rotateY(perspectiveTilt),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    child: _buildGarmentImageWidget(activeImageUrl, fit: BoxFit.contain),
+                  ),
+                ),
+
+                // Top Badge: 360° Rotational View & Live Angle
                 Positioned(
                   top: 14,
                   left: 14,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.75),
+                      color: Colors.black.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Icon(Icons.verified_outlined, size: 13, color: Colors.white),
-                        SizedBox(width: 4),
+                      children: [
+                        const Icon(Icons.threesixty_rounded, size: 14, color: AppTheme.accentColor),
+                        const SizedBox(width: 5),
                         Text(
-                          '100% Authentic Handloom',
-                          style: TextStyle(
+                          '360° ROTATION: ${_rotationAngle.round()}°',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                             fontSize: 11,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ],
                     ),
                   ),
                 ),
-                if (allImages.length > 1)
-                  Positioned(
-                    bottom: 14,
-                    right: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${allImages.indexOf(currentDisplayImage) + 1} / ${allImages.length}',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
+
+                // Drag Gesture Instruction Overlay
+                Positioned(
+                  bottom: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.touch_app_outlined, size: 14, color: Colors.white),
+                        SizedBox(width: 6),
+                        Text(
+                          '👈 Drag horizontally to rotate garment 360° 👉',
+                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
                   ),
+                ),
               ],
             ),
           ),
+        ),
 
-          // Multi-Image Thumbnails
-          if (allImages.length > 1)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Color(0xFFF3F4F6))),
+        // 360 Controls & Quick-Angle Snapping
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: const BoxDecoration(
+            color: Color(0xFFFAFAFA),
+            border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
+          ),
+          child: Column(
+            children: [
+              // Angle Quick Snap Chips
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildAngleChip(label: 'Front (0°)', targetAngle: 0.0),
+                  _buildAngleChip(label: 'Side (90°)', targetAngle: 90.0),
+                  _buildAngleChip(label: 'Back (180°)', targetAngle: 180.0),
+                  _buildAngleChip(label: 'Side (270°)', targetAngle: 270.0),
+                ],
               ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: allImages.map((img) {
-                    final isSelected = img == currentDisplayImage;
-                    return InkWell(
-                      onTap: () => setState(() => _selectedImageUrl = img),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 10),
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isSelected ? AppTheme.primaryColor : const Color(0xFFE5E7EB),
-                            width: isSelected ? 2.5 : 1,
-                          ),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: _buildGarmentImageWidget(img, fit: BoxFit.cover),
-                      ),
-                    );
-                  }).toList(),
-                ),
+              const SizedBox(height: 10),
+
+              // Auto-Spin & Reset Buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _toggleAutoSpin,
+                    icon: Icon(_isAutoSpinning ? Icons.pause : Icons.play_arrow, size: 16),
+                    label: Text(_isAutoSpinning ? 'Pause Auto-Spin' : 'Auto 360° Spin'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isAutoSpinning ? AppTheme.accentColor : AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _set360Angle(0.0),
+                    icon: const Icon(Icons.refresh_rounded, size: 15),
+                    label: const Text('Reset Angle'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                  ),
+                ],
               ),
-            ),
-        ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAngleChip({required String label, required double targetAngle}) {
+    final bool isNear = (_rotationAngle - targetAngle).abs() < 25.0 ||
+        (targetAngle == 0.0 && (360.0 - _rotationAngle).abs() < 25.0);
+
+    return InkWell(
+      onTap: () => _set360Angle(targetAngle),
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isNear ? AppTheme.primaryLight : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isNear ? AppTheme.primaryColor : const Color(0xFFD1D5DB),
+            width: isNear ? 1.5 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isNear ? FontWeight.bold : FontWeight.w500,
+            color: isNear ? AppTheme.primaryColor : AppTheme.textPrimary,
+          ),
+        ),
       ),
     );
   }
@@ -411,6 +914,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     VariantModel? variant,
     double currentPrice,
     double originalPrice, {
+    required bool isWishlisted,
     required bool includeInlineActions,
   }) {
     return Container(
@@ -710,6 +1214,8 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                _buildWishlistSideButton(product, variant, isWishlisted),
               ],
             ),
             const SizedBox(height: 20),
@@ -987,7 +1493,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                   ElevatedButton.icon(
                     onPressed: () => ProductRatingSheet.show(
                       context,
-                      orderId: purchasedOrderId!,
+                      orderId: purchasedOrderId,
                       productId: product.id,
                       productTitle: product.title,
                       shopName: product.shopName,
@@ -1178,9 +1684,9 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     );
   }
 
-  Widget _buildBottomActionBar(ProductModel product, VariantModel? variant) {
+  Widget _buildBottomActionBar(ProductModel product, VariantModel? variant, bool isWishlisted) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Color(0xFFEEEEEE), width: 1)),
@@ -1191,9 +1697,9 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
             // Bargain Button (Left)
             if (product.bargainEnabled) ...[
               Expanded(
-                flex: 1,
+                flex: 4,
                 child: SizedBox(
-                  height: 46,
+                  height: 48,
                   child: OutlinedButton.icon(
                     onPressed: _handleBargain,
                     icon: const Icon(Icons.local_offer_outlined, size: 18, color: AppTheme.primaryColor),
@@ -1215,14 +1721,14 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
             ],
 
-            // Add to Bag Button (Right)
+            // Add to Bag Button (Center/Right)
             Expanded(
-              flex: product.bargainEnabled ? 2 : 1,
+              flex: 5,
               child: SizedBox(
-                height: 46,
+                height: 48,
                 child: ElevatedButton.icon(
                   onPressed: variant?.stockQty != null && variant!.stockQty > 0
                       ? _handleAddToCart
@@ -1246,6 +1752,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                 ),
               ),
             ),
+            const SizedBox(width: 10),
+
+            // Wishlist Button (on the side of Add to Bag)
+            _buildWishlistSideButton(product, variant, isWishlisted),
           ],
         ),
       ),

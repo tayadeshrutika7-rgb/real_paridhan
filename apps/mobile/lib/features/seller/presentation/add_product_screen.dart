@@ -21,34 +21,24 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _basePriceController = TextEditingController(text: '1999.00');
-  final _minBargainPriceController = TextEditingController(text: '1599.00');
+  final _basePriceController = TextEditingController();
+  final _minBargainPriceController = TextEditingController();
   bool _bargainEnabled = true;
 
   // Multiple Product Images List (first item is Primary Cover Photo)
-  final List<String> _productImages = [
-    'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=800&auto=format&fit=crop&q=80',
-  ];
+  // Clean empty start so seller uploads their own custom image as cover
+  final List<String> _productImages = [];
 
-  // Variants list
+  // Variants list - starts clean
   final List<VariantModel> _variants = [
     const VariantModel(
       id: '',
       productId: '',
-      size: 'M',
-      color: 'Maroon',
-      stockQty: 10,
-      sku: 'PRD-M-MRN',
-      imageUrls: ['https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=800'],
-    ),
-    const VariantModel(
-      id: '',
-      productId: '',
-      size: 'L',
-      color: 'Maroon',
-      stockQty: 8,
-      sku: 'PRD-L-MRN',
-      imageUrls: ['https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=800'],
+      size: 'Free Size',
+      color: 'Standard',
+      stockQty: 5,
+      sku: '',
+      imageUrls: [],
     ),
   ];
 
@@ -169,13 +159,15 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   }
 
   void _removeProductImage(int index) {
-    if (_productImages.length > 1) {
+    if (index >= 0 && index < _productImages.length) {
       setState(() {
         _productImages.removeAt(index);
       });
-    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Product must have at least one image.')),
+        const SnackBar(
+          content: Text('Photo removed.'),
+          duration: Duration(milliseconds: 800),
+        ),
       );
     }
   }
@@ -574,6 +566,16 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
 
   Future<void> _handlePublish() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_productImages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload at least 1 photo for your product (it will be used as the cover photo).'),
+          backgroundColor: AppTheme.errorColor,
+        ),
+      );
+      return;
+    }
 
     final basePrice = double.tryParse(_basePriceController.text.trim()) ?? 0;
     final minPrice = double.tryParse(_minBargainPriceController.text.trim()) ?? 0;
@@ -1028,8 +1030,31 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Upload multiple photos (front, back, model, fabric close-up). The first photo is your Primary Cover.',
+            'Upload custom photos (Front, Back, Side, Close-up). The first photo will be your Cover Image. Multiple angle photos automatically enable an interactive 360° Spin View for customers!',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+
+          // 360 Degree Interactive Feature Callout
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFBBF7D0)),
+            ),
+            child: Row(
+              children: const [
+                Icon(Icons.threesixty_rounded, color: Color(0xFF16A34A), size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '360° Degree Interactive View is auto-generated on customer side using your multi-angle photos!',
+                    style: TextStyle(color: Color(0xFF15803D), fontSize: 11.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
 

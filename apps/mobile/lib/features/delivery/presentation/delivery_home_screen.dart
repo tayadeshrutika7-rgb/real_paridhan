@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/notifications/presentation/role_notification_badge.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../domain/delivery_task_model.dart';
+import '../domain/delivery_route_batch_model.dart';
 import 'delivery_controller.dart';
+import 'widgets/same_route_batch_card.dart';
 
 class DeliveryHomeScreen extends ConsumerStatefulWidget {
   const DeliveryHomeScreen({super.key});
@@ -33,9 +37,41 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
   }
 
   void _handleAccept(DeliveryTaskModel task) async {
+    final state = ref.read(deliveryProvider);
+    if (!state.isVerified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot accept deliveries. Your delivery partner profile is pending Super Admin verification.'),
+          backgroundColor: AppTheme.warningColor,
+        ),
+      );
+      return;
+    }
+
     final success = await ref.read(deliveryProvider.notifier).acceptIncomingTask(task.id);
     if (success && mounted) {
       context.push('/delivery/trip/${task.orderId}');
+    }
+  }
+
+  void _handleAcceptBatch(DeliveryRouteBatchModel batch) async {
+    final state = ref.read(deliveryProvider);
+    if (!state.isVerified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot accept delivery batches. Your delivery partner profile is pending Super Admin verification.'),
+          backgroundColor: AppTheme.warningColor,
+        ),
+      );
+      return;
+    }
+
+    final success = await ref.read(deliveryProvider.notifier).acceptRouteBatch(batch);
+    if (success && mounted) {
+      final active = ref.read(deliveryProvider).activeTrip;
+      if (active != null) {
+        context.push('/delivery/trip/${active.orderId}');
+      }
     }
   }
 
@@ -61,6 +97,7 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
           ],
         ),
         actions: [
+          const RoleNotificationBadge(role: UserRole.delivery),
           IconButton(
             icon: const Icon(Icons.account_balance_wallet_outlined),
             tooltip: 'Earnings & COD',
@@ -81,6 +118,51 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // KYC Verification Status Card
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: deliveryState.isVerified ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: deliveryState.isVerified ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      deliveryState.isVerified ? Icons.verified_rounded : Icons.pending_actions_rounded,
+                      color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
+                      size: 26,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            deliveryState.isVerified ? 'Partner KYC Verified & Active' : 'KYC Verification Pending Review',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            deliveryState.isVerified
+                                ? 'Your driving license and vehicle registration are verified for hyperlocal order delivery.'
+                                : 'Super Admin will verify your driving license and vehicle registration before live trips.',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
               // 1. Online / Offline Duty Radar Banner
               Container(
                 padding: const EdgeInsets.all(16),
@@ -329,12 +411,24 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
                     ),
                   ),
                 )
-              else
+              else ...[
+                // Smart Same-Path Batches (Highlighting route proximity & carrying ease)
+                if (deliveryState.availableBatches.isNotEmpty) ...[
+                  ...deliveryState.availableBatches.map((batch) => SameRouteBatchCard(
+                        batch: batch,
+                        onAcceptBatch: _handleAcceptBatch,
+                      )),
+                  const SizedBox(height: 10),
+                  const Divider(height: 24),
+                  const Text('Individual Store Orders', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 10),
+                ],
                 ...incomingRequests.map((task) => _IncomingTaskCard(
                       task: task,
                       onAccept: () => _handleAccept(task),
                       onDecline: () => ref.read(deliveryProvider.notifier).dismissRequest(task.id),
                     )),
+              ],
 
               const SizedBox(height: 40),
             ],

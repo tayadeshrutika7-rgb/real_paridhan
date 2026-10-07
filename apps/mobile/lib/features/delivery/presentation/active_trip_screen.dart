@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/map_navigation_launcher.dart';
 import '../domain/delivery_task_model.dart';
 import 'delivery_controller.dart';
 
@@ -387,6 +388,88 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
 
             const SizedBox(height: 16),
 
+            // On-The-Way Order Along Current Path
+            if (deliveryState.onTheWayOrder != null) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.alt_route, size: 13, color: Color(0xFFF59E0B)),
+                              SizedBox(width: 4),
+                              Text(
+                                'ON-THE-WAY ORDER FOUND',
+                                style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.bold, fontSize: 10),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '+₹${deliveryState.onTheWayOrder!.extraEarnings.toStringAsFixed(0)} Extra',
+                          style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      deliveryState.onTheWayOrder!.routeCorridor,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Detour only +${deliveryState.onTheWayOrder!.detourDistanceKm} km • ${deliveryState.onTheWayOrder!.packageLoadSummary}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          final extraTask = deliveryState.onTheWayOrder!.tasks.firstWhere(
+                            (t) => t.id != trip.id,
+                            orElse: () => deliveryState.onTheWayOrder!.tasks.last,
+                          );
+                          ref.read(deliveryProvider.notifier).acceptIncomingTask(extraTask.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Added ${extraTask.orderNumber} to your current route (+₹${extraTask.deliveryPayout.toStringAsFixed(0)})!'),
+                              backgroundColor: AppTheme.successColor,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.add_shopping_cart, size: 16),
+                        label: const Text('Stack Order to Current Route'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Section 1: Pickup Boutique Info
             Card(
               child: Padding(
@@ -424,9 +507,7 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
                       children: [
                         OutlinedButton.icon(
                           onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Calling ${trip.shopName}: ${trip.shopPhone}')),
-                            );
+                            MapNavigationLauncher.makePhoneCall(trip.shopPhone, context: context);
                           },
                           icon: const Icon(Icons.call, size: 16),
                           label: const Text('Call Shop'),
@@ -435,15 +516,21 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        OutlinedButton.icon(
+                        ElevatedButton.icon(
                           onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Navigating to ${trip.shopAddress}')),
+                            MapNavigationLauncher.openGoogleMaps(
+                              latitude: trip.shopLat,
+                              longitude: trip.shopLng,
+                              destinationName: trip.shopName,
+                              address: trip.shopAddress,
+                              context: context,
                             );
                           },
                           icon: const Icon(Icons.directions, size: 16),
-                          label: const Text('Directions'),
-                          style: OutlinedButton.styleFrom(
+                          label: const Text('Directions (Google Maps)'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           ),
                         ),
@@ -510,9 +597,7 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
                       children: [
                         OutlinedButton.icon(
                           onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Calling ${trip.customerName}: ${trip.customerPhone}')),
-                            );
+                            MapNavigationLauncher.makePhoneCall(trip.customerPhone, context: context);
                           },
                           icon: const Icon(Icons.call, size: 16),
                           label: const Text('Call Customer'),
@@ -521,15 +606,24 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        OutlinedButton.icon(
+                        ElevatedButton.icon(
                           onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Navigating to ${trip.dropAddress}')),
+                            MapNavigationLauncher.openGoogleMaps(
+                              originLatitude: trip.shopLat,
+                              originLongitude: trip.shopLng,
+                              originName: trip.shopName,
+                              latitude: trip.dropLat,
+                              longitude: trip.dropLng,
+                              destinationName: trip.customerName,
+                              address: trip.dropAddress,
+                              context: context,
                             );
                           },
                           icon: const Icon(Icons.directions, size: 16),
-                          label: const Text('Directions'),
-                          style: OutlinedButton.styleFrom(
+                          label: const Text('Directions (Shop ➔ Customer)'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           ),
                         ),

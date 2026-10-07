@@ -14,9 +14,9 @@ class ConsumerDiscoveryState {
 
   const ConsumerDiscoveryState({
     this.isLoading = false,
-    this.currentLat = 26.9124, // Jaipur
-    this.currentLng = 75.7873,
-    this.locationLabel = 'Johari Bazaar, Jaipur',
+    this.currentLat = 20.9320, // Amravati, Maharashtra
+    this.currentLng = 77.7523,
+    this.locationLabel = 'Rajkamal Chowk, Amravati',
     this.nearbyShops = const [],
     this.featuredProducts = const [],
     this.errorMessage,

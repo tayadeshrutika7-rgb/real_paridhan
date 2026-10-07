@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../auth/presentation/auth_state.dart';
+import '../domain/cart_item_model.dart';
 import 'cart_controller.dart';
 
 class CartScreen extends ConsumerWidget {
@@ -9,34 +11,38 @@ class CartScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final isGuest = authState.isGuest || authState.user == null || (authState.user?.id.startsWith('guest') ?? true);
     final cartState = ref.watch(cartProvider);
-    final items = cartState.items;
+    final items = isGuest ? <CartItemModel>[] : cartState.items;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Shopping Bag (${cartState.totalItems})'),
+        title: Text('Shopping Bag (${isGuest ? 0 : cartState.totalItems})'),
       ),
-      body: cartState.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : items.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.shopping_bag_outlined, size: 72, color: AppTheme.textMuted),
-                      const SizedBox(height: 16),
-                      Text('Your shopping bag is empty', style: Theme.of(context).textTheme.headlineSmall),
-                      const SizedBox(height: 6),
-                      Text('Discover authentic garments from local boutiques near you.',
-                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: () => context.go('/'),
-                        child: const Text('Start Exploring'),
+      body: isGuest
+          ? _buildGuestLockedState(context)
+          : cartState.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : items.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.shopping_bag_outlined, size: 72, color: AppTheme.textMuted),
+                          const SizedBox(height: 16),
+                          Text('Your shopping bag is empty', style: Theme.of(context).textTheme.headlineSmall),
+                          const SizedBox(height: 6),
+                          Text('Discover authentic garments from local boutiques near you.',
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: () => context.go('/'),
+                            child: const Text('Start Exploring'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                )
+                    )
               : Column(
                   children: [
                     Expanded(
@@ -124,17 +130,45 @@ class CartScreen extends ConsumerWidget {
                                             Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
-                                                Text(
-                                                  '₹${item.effectivePrice.toStringAsFixed(0)}',
-                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.primaryColor),
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      '₹${item.effectivePrice.toStringAsFixed(0)}',
+                                                      style: TextStyle(
+                                                        fontWeight: FontWeight.bold,
+                                                        fontSize: 16,
+                                                        color: item.hasBargainPrice ? Colors.green.shade700 : AppTheme.primaryColor,
+                                                      ),
+                                                    ),
+                                                    if (item.hasBargainPrice) ...[
+                                                      const SizedBox(width: 6),
+                                                      Text(
+                                                        '₹${item.unitPrice.toStringAsFixed(0)}',
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: AppTheme.textSecondary,
+                                                          decoration: TextDecoration.lineThrough,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
                                                 ),
                                                 if (item.hasBargainPrice)
-                                                  Text(
-                                                    'Bargain Price (₹${item.unitPrice.toStringAsFixed(0)})',
-                                                    style: const TextStyle(
-                                                      fontSize: 10,
-                                                      color: AppTheme.accentColor,
-                                                      fontWeight: FontWeight.bold,
+                                                  Container(
+                                                    margin: const EdgeInsets.only(top: 2),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.green.shade50,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      border: Border.all(color: Colors.green.shade200),
+                                                    ),
+                                                    child: Text(
+                                                      '🏷️ Bargain Accepted (Save ₹${((item.unitPrice - item.effectivePrice) * item.quantity).toStringAsFixed(0)})',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        color: Colors.green.shade800,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
                                                     ),
                                                   ),
                                               ],
@@ -197,7 +231,7 @@ class CartScreen extends ConsumerWidget {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Estimated Local Delivery', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+                                const Text('Estimated Local Delivery (Amravati)', style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
                                 Text('Free', style: TextStyle(color: AppTheme.successColor, fontWeight: FontWeight.bold, fontSize: 13)),
                               ],
                             ),
@@ -205,7 +239,7 @@ class CartScreen extends ConsumerWidget {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Total', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                 Text(
                                   '₹${cartState.subtotal.toStringAsFixed(2)}',
                                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -218,9 +252,10 @@ class CartScreen extends ConsumerWidget {
                             const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
-                              child: ElevatedButton(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.arrow_forward),
+                                label: const Text('Proceed to Checkout'),
                                 onPressed: () => context.push('/checkout'),
-                                child: const Text('Proceed to Checkout'),
                               ),
                             ),
                           ],
@@ -229,6 +264,72 @@ class CartScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
+    );
+  }
+
+  Widget _buildGuestLockedState(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.shopping_bag_outlined,
+                size: 64,
+                color: AppTheme.primaryColor,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Sign In to Access Your Bag',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Guest users cannot add items or checkout. Please sign in to your Paridhan account to add items, bargain, and place orders.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 28),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => context.push('/login'),
+                  icon: const Icon(Icons.login_rounded),
+                  label: const Text(
+                    'Sign In to Account',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

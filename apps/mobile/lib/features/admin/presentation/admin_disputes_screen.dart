@@ -14,7 +14,13 @@ class AdminDisputesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Disputes & Escalations'),
+        title: const Text('Disputes & Refund Escalations'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(adminProvider.notifier).loadDashboard(),
+          ),
+        ],
       ),
       body: disputes.isEmpty
           ? const Center(
@@ -36,15 +42,28 @@ class AdminDisputesScreen extends ConsumerWidget {
                 final dispute = disputes[index];
                 return _DisputeCard(
                   dispute: dispute,
-                  onResolve: () async {
+                  onApproveRefund: () async {
                     final success = await ref
                         .read(adminProvider.notifier)
-                        .resolveDispute(dispute.id);
+                        .resolveDispute(dispute.id, isRefundApproved: true);
                     if (success && context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('Dispute for "${dispute.orderNumber}" marked as resolved.'),
+                          content: Text('Refund of ₹${dispute.amount.toStringAsFixed(2)} processed for "${dispute.orderNumber}".'),
                           backgroundColor: AppTheme.successColor,
+                        ),
+                      );
+                    }
+                  },
+                  onResolveWithoutRefund: () async {
+                    final success = await ref
+                        .read(adminProvider.notifier)
+                        .resolveDispute(dispute.id, isRefundApproved: false);
+                    if (success && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Dispute for "${dispute.orderNumber}" resolved as mediated exchange.'),
+                          backgroundColor: AppTheme.primaryColor,
                         ),
                       );
                     }
@@ -58,9 +77,14 @@ class AdminDisputesScreen extends ConsumerWidget {
 
 class _DisputeCard extends StatelessWidget {
   final DisputeTicket dispute;
-  final VoidCallback onResolve;
+  final VoidCallback onApproveRefund;
+  final VoidCallback onResolveWithoutRefund;
 
-  const _DisputeCard({required this.dispute, required this.onResolve});
+  const _DisputeCard({
+    required this.dispute,
+    required this.onApproveRefund,
+    required this.onResolveWithoutRefund,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -87,15 +111,21 @@ class _DisputeCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: dispute.isResolved ? AppTheme.successColor.withValues(alpha: 0.1) : AppTheme.errorColor.withValues(alpha: 0.1),
+                    color: dispute.isResolved
+                        ? (dispute.status == 'refunded' ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7))
+                        : const Color(0xFFFEE2E2),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    dispute.isResolved ? 'Resolved' : 'Action Required',
+                    dispute.isResolved
+                        ? (dispute.status == 'refunded' ? 'REFUNDED' : 'RESOLVED')
+                        : 'ACTION REQUIRED',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: dispute.isResolved ? AppTheme.successColor : AppTheme.errorColor,
+                      color: dispute.isResolved
+                          ? (dispute.status == 'refunded' ? const Color(0xFF92400E) : const Color(0xFF166534))
+                          : const Color(0xFF991B1B),
                     ),
                   ),
                 ),
@@ -123,17 +153,29 @@ class _DisputeCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Order Value: ₹${dispute.amount.toStringAsFixed(2)}',
+                  'Claim Amount: ₹${dispute.amount.toStringAsFixed(2)}',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primaryColor),
                 ),
                 if (!dispute.isResolved)
-                  ElevatedButton(
-                    onPressed: onResolve,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    ),
-                    child: const Text('Resolve Case', style: TextStyle(fontSize: 12)),
+                  Row(
+                    children: [
+                      OutlinedButton(
+                        onPressed: onResolveWithoutRefund,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        ),
+                        child: const Text('Resolve', style: TextStyle(fontSize: 11)),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: onApproveRefund,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.errorColor,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        ),
+                        child: const Text('Approve Refund', style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
                   ),
               ],
             ),

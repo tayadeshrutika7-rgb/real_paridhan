@@ -201,11 +201,11 @@ class OrderModel {
     }
 
     return OrderModel(
-      id: json['id'] as String,
-      orderNumber: json['order_number'] as String? ?? 'PRD-${json['id'].toString().substring(0, 8).toUpperCase()}',
+      id: json['id']?.toString() ?? 'ord-${DateTime.now().millisecondsSinceEpoch}',
+      orderNumber: json['order_number'] as String? ?? 'PRD-${(json['id'] ?? '12345678').toString().substring(0, 8).toUpperCase()}',
       consumerId: json['consumer_id'] as String? ?? '',
       shopId: json['shop_id'] as String? ?? '',
-      shopName: json['shop_name'] as String? ?? json['shops']?['name'] as String? ?? 'Local Boutique',
+      shopName: json['shop_name'] as String? ?? (json['shops'] is Map ? json['shops']['name'] as String? : null) ?? 'Local Boutique',
       items: itemsList,
       subtotal: (json['subtotal'] as num?)?.toDouble() ?? 0.0,
       deliveryFee: (json['delivery_fee'] as num?)?.toDouble() ?? 49.0,
@@ -227,19 +227,19 @@ class OrderModel {
       razorpayOrderId: json['razorpay_order_id'] as String?,
       razorpayPaymentId: json['razorpay_payment_id'] as String?,
       deliveryAddress: address,
-      deliveryOtp: json['delivery_otp'] as String? ?? '4829',
+      deliveryOtp: json['delivery_otp']?.toString() ?? '4829',
       deliveryPartnerName: json['delivery_partner_name'] as String?,
       deliveryPartnerPhone: json['delivery_partner_phone'] as String?,
       deliveryPartnerLat: (json['delivery_partner_lat'] as num?)?.toDouble(),
       deliveryPartnerLng: (json['delivery_partner_lng'] as num?)?.toDouble(),
       createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
+          ? (DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now())
           : DateTime.now(),
       updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'] as String)
+          ? (DateTime.tryParse(json['updated_at'].toString()) ?? DateTime.now())
           : DateTime.now(),
       deliveredAt: json['delivered_at'] != null
-          ? DateTime.tryParse(json['delivered_at'] as String)
+          ? DateTime.tryParse(json['delivered_at'].toString())
           : null,
     );
   }

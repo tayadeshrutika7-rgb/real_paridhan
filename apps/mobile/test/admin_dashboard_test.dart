@@ -18,16 +18,25 @@ void main() {
     HttpOverrides.global = TestHttpOverrides();
   });
 
-  group('Phase 7: Super Admin Dashboard & City Analytics Tests', () {
-    test('AdminMetricsModel computes 10% platform revenue and zone aggregations', () {
+  group('Super Admin Control Center & Production Analytics Tests', () {
+    test('AdminMetricsModel computes GMV, net platform earnings, and masked KYC data', () {
       const gmv = 200000.0;
       const commissionRate = 10.0;
-      const revenue = gmv * (commissionRate / 100);
+      const commission = gmv * (commissionRate / 100);
+      const adRevenue = 5000.0;
+      const deliveryFee = 4000.0;
+      const gateway = gmv * 0.02; // 4000.0
+      const refunds = 2000.0;
 
-      const metrics = AdminMetricsModel(
+      final metrics = AdminMetricsModel(
         totalGmv: gmv,
         platformCommissionRate: commissionRate,
-        platformRevenue: revenue,
+        platformRevenue: commission,
+        totalCommissionEarned: commission,
+        totalAdRevenue: adRevenue,
+        totalDeliveryCharges: deliveryFee,
+        gatewayCharges: gateway,
+        totalRefundsAmount: refunds,
         totalOrdersCount: 150,
         activeBoutiquesCount: 45,
         pendingKycCount: 3,
@@ -35,12 +44,35 @@ void main() {
       );
 
       expect(metrics.totalGmv, 200000.0);
-      expect(metrics.platformRevenue, 20000.0); // 10% of ₹2,00,000 = ₹20,000
-      expect(metrics.platformCommissionRate, 10.0);
-      expect(metrics.pendingKycCount, 3);
+      expect(metrics.platformRevenue, 20000.0);
+      expect(metrics.grossSales, 200000.0);
+      expect(metrics.sellerEarnings, 180000.0);
+      expect(metrics.avgOrderValue, 200000.0 / 150);
+      expect(metrics.netPlatformEarnings, (20000.0 + 5000.0 + (4000.0 * 0.2) - 2000.0 - 4000.0));
+
+      final kycItem = BoutiqueVerificationItem(
+        id: 'k-1',
+        shopName: 'Jaipur Silks',
+        ownerName: 'Manish Rathore',
+        ownerEmail: 'manish@silk.in',
+        ownerPhone: '+91 98290 12345',
+        gstin: '08ABCDE1234F1Z5',
+        address: 'Bapu Bazaar',
+        cityZone: 'Pink City',
+        panNumber: 'ABCDE1234F',
+        aadhaarNumber: '123456789012',
+        bankAccountNumber: '987654321098',
+        status: KycStatus.pending,
+        submittedAt: DateTime(2026, 1, 1),
+      );
+
+      // Verify default security data masking
+      expect(kycItem.maskedPan, 'AB******4F');
+      expect(kycItem.maskedAadhaar, '**** **** 9012');
+      expect(kycItem.maskedBankAccount, '******1098');
     });
 
-    test('AdminRepository fetches metrics, updates KYC status, and resolves disputes', () async {
+    test('AdminRepository executes metrics, KYC status with audit log, and dispute refund', () async {
       final repo = AdminRepository();
 
       // 1. Get Platform Metrics
@@ -48,22 +80,38 @@ void main() {
       expect(metrics.totalGmv, greaterThan(0));
       expect(metrics.zoneMetrics.isNotEmpty, isTrue);
       expect(metrics.pendingBoutiques.isNotEmpty, isTrue);
+      expect(metrics.orders.isNotEmpty, isTrue);
+      expect(metrics.sellers.isNotEmpty, isTrue);
+      expect(metrics.customers.isNotEmpty, isTrue);
+      expect(metrics.auditLogs.isNotEmpty, isTrue);
 
-      // 2. Approve Boutique KYC
+      // 2. Approve Boutique KYC with audit log
       final boutiqueToApprove = metrics.pendingBoutiques.first;
       final approveSuccess = await repo.updateBoutiqueKycStatus(
         boutiqueId: boutiqueToApprove.id,
         status: KycStatus.approved,
+        verificationNotes: 'Verified via physical store inspection.',
       );
       expect(approveSuccess, isTrue);
 
-      // 3. Resolve Dispute Ticket
+      // 3. Resolve Dispute Ticket with Refund
       final dispute = metrics.disputes.first;
-      final disputeSuccess = await repo.resolveDisputeTicket(disputeId: dispute.id);
+      final disputeSuccess = await repo.resolveDisputeTicket(
+        disputeId: dispute.id,
+        isRefundApproved: true,
+      );
       expect(disputeSuccess, isTrue);
+
+      // 4. Update Order Status
+      final order = metrics.orders.first;
+      final orderSuccess = await repo.updateOrderStatus(
+        orderId: order.id,
+        newStatus: 'delivered',
+      );
+      expect(orderSuccess, isTrue);
     });
 
-    testWidgets('Renders Admin Dashboard with GMV and Operations Hub', (WidgetTester tester) async {
+    testWidgets('Renders Admin Dashboard Control Center with Tabs and Business KPIs', (WidgetTester tester) async {
       tester.view.physicalSize = const Size(1200, 1600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -86,15 +134,16 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('Super Admin Portal'), findsOneWidget);
-      expect(find.text('Super Admin Jaipur (City Ops: Jaipur)'), findsOneWidget);
+      expect(find.text('PARIDHAN Admin Control Center'), findsOneWidget);
+      expect(find.text('Operator: Super Admin Jaipur • City: Jaipur (HQ)'), findsOneWidget);
       expect(find.text('Gross Merchandise Value (GMV)'), findsOneWidget);
-      expect(find.text('Operations Hub'), findsOneWidget);
-      expect(find.text('Boutique KYC'), findsOneWidget);
-      expect(find.text('City Analytics'), findsOneWidget);
+      expect(find.text('Business & Platform KPIs'), findsOneWidget);
+      expect(find.text('Operations Quick Actions'), findsOneWidget);
+      expect(find.text('Platform Trends & Distributions'), findsOneWidget);
+      expect(find.text('Jaipur Hyperlocal Zones'), findsOneWidget);
     });
 
-    testWidgets('Renders Admin Boutique Verification Screen', (WidgetTester tester) async {
+    testWidgets('Renders Admin Boutique Verification Screen with Sensitive Data Masking', (WidgetTester tester) async {
       tester.view.physicalSize = const Size(1200, 1600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -111,8 +160,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.text('Boutique KYC Verification'), findsOneWidget);
-      expect(find.text('Pending Review'), findsOneWidget);
-      expect(find.text('Approve & Activate'), findsWidgets);
+      expect(find.textContaining('Pending Review'), findsWidgets);
+      expect(find.text('Financial & Identity Documents (Protected)'), findsWidgets);
+      expect(find.text('Reveal'), findsWidgets);
     });
 
     testWidgets('Renders Admin Analytics and Disputes Screens', (WidgetTester tester) async {
@@ -132,9 +182,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('City-Level Analytics (Jaipur)'), findsOneWidget);
+      expect(find.text('City & Financial Analytics (Jaipur)'), findsOneWidget);
+      expect(find.text('Platform Financial Breakdown'), findsOneWidget);
       expect(find.text('Jaipur Hyperlocal Zones'), findsOneWidget);
-      expect(find.text('Top Fashion Categories'), findsOneWidget);
 
       // 2. Disputes Screen
       await tester.pumpWidget(
@@ -148,7 +198,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('Disputes & Escalations'), findsOneWidget);
+      expect(find.text('Disputes & Refund Escalations'), findsOneWidget);
+      expect(find.text('Approve Refund'), findsWidgets);
     });
   });
 }

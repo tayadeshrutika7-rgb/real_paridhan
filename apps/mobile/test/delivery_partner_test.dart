@@ -10,6 +10,7 @@ import 'package:paridhan_mobile/features/auth/presentation/auth_state.dart';
 import 'package:paridhan_mobile/features/delivery/data/delivery_repository.dart';
 import 'package:paridhan_mobile/features/delivery/domain/delivery_task_model.dart';
 import 'package:paridhan_mobile/features/delivery/domain/delivery_earnings_model.dart';
+import 'package:paridhan_mobile/features/delivery/domain/delivery_route_batch_model.dart';
 import 'package:paridhan_mobile/features/delivery/presentation/delivery_earnings_screen.dart';
 import 'test_utils.dart';
 
@@ -123,6 +124,92 @@ void main() {
       expect(correctOtpSuccess, isTrue);
     });
 
+    test('DeliveryRouteBatchModel finds same-path batches and checks on-the-way orders', () {
+      final incoming = [
+        const DeliveryTaskModel(
+          id: 'task-101',
+          orderId: 'ord-101',
+          orderNumber: 'PRD-2026-101',
+          status: DeliveryTaskStatus.pending,
+          shopId: 'shop-01',
+          shopName: 'Jaipur Handlooms',
+          shopAddress: 'Johari Bazaar',
+          shopPhone: '9829012345',
+          shopLat: 26.9196,
+          shopLng: 75.8267,
+          distanceToShopKm: 1.4,
+          customerName: 'Pooja Verma',
+          customerPhone: '9876543210',
+          dropAddress: 'C-Scheme, Jaipur',
+          dropLat: 26.9124,
+          dropLng: 75.7873,
+          distanceToCustomerKm: 3.2,
+          deliveryPayout: 85.0,
+          orderTotalAmount: 1899.0,
+          isCod: false,
+          codCashToCollect: 0.0,
+          items: [
+            DeliveryTaskItem(
+              title: 'Anarkali Kurta',
+              size: 'M',
+              color: 'Blue',
+              quantity: 1,
+              price: 1899.0,
+            ),
+          ],
+          deliveryOtp: '4829',
+        ),
+        const DeliveryTaskModel(
+          id: 'task-102',
+          orderId: 'ord-102',
+          orderNumber: 'PRD-2026-102',
+          status: DeliveryTaskStatus.pending,
+          shopId: 'shop-02',
+          shopName: 'Rajputana Silks',
+          shopAddress: 'Bapu Bazaar',
+          shopPhone: '9829044556',
+          shopLat: 26.9150,
+          shopLng: 75.8200,
+          distanceToShopKm: 2.1,
+          customerName: 'Rohit Khandelwal',
+          customerPhone: '9829099887',
+          dropAddress: 'C-Scheme, Jaipur',
+          dropLat: 26.9140,
+          dropLng: 75.7890,
+          distanceToCustomerKm: 3.4,
+          deliveryPayout: 110.0,
+          orderTotalAmount: 2450.0,
+          isCod: true,
+          codCashToCollect: 2450.0,
+          items: [
+            DeliveryTaskItem(
+              title: 'Dupatta Set',
+              size: 'L',
+              color: 'Maroon',
+              quantity: 1,
+              price: 2450.0,
+            ),
+          ],
+          deliveryOtp: '9103',
+        ),
+      ];
+
+      final batches = DeliveryRouteBatchModel.findSamePathBatches(incoming);
+      expect(batches.isNotEmpty, isTrue);
+      final batch = batches.first;
+      expect(batch.orderCount, 2);
+      expect(batch.totalPayout, 195.0); // 85 + 110
+      expect(batch.isEasyToCarry, isTrue);
+      expect(batch.detourDistanceKm, lessThan(3.0));
+
+      final onTheWay = DeliveryRouteBatchModel.checkOnTheWayOrder(
+        activeTrip: incoming.first,
+        incomingOrders: incoming,
+      );
+      expect(onTheWay, isNotNull);
+      expect(onTheWay!.extraEarnings, 110.0);
+    });
+
     testWidgets('Renders Delivery Partner Radar and Overview', (WidgetTester tester) async {
       tester.view.physicalSize = const Size(1200, 1600);
       tester.view.devicePixelRatio = 1.0;
@@ -151,6 +238,7 @@ void main() {
       expect(find.text('Vikram Singh (Fleet)'), findsOneWidget);
       expect(find.text('Nearby Order Radar'), findsOneWidget);
       expect(find.text('Accept Order'), findsWidgets);
+      expect(find.textContaining('SAME-PATH BUNDLE'), findsWidgets);
     });
 
     testWidgets('Renders Delivery Earnings & COD Remittance Screen', (WidgetTester tester) async {

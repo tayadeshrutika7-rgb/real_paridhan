@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/map_navigation_launcher.dart';
 import '../domain/order_model.dart';
 import 'order_controller.dart';
 import 'widgets/product_rating_sheet.dart';
@@ -242,9 +243,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   trailing: IconButton(
                     icon: const Icon(Icons.call, color: AppTheme.successColor),
                     onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Calling ${order.deliveryPartnerName}...')),
-                      );
+                      final phone = order.deliveryPartnerPhone ?? '+919876543210';
+                      MapNavigationLauncher.makePhoneCall(phone, context: context);
                     },
                   ),
                 ),
