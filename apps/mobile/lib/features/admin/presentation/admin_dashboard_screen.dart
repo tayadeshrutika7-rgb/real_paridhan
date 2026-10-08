@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import '../../../core/constants/app_constants.dart';
-import '../../../core/notifications/presentation/role_notification_badge.dart';
+import '../../../core/notifications/presentation/role_notification_controller.dart';
+import '../../../core/notifications/presentation/role_notifications_sheet.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../domain/admin_metrics_model.dart';
@@ -19,6 +20,9 @@ class AdminDashboardScreen extends ConsumerStatefulWidget {
 class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _selectedTabIndex = 0;
+  bool _isSidebarCollapsed = false;
+  bool _isHoveringSidebar = false;
   final TextEditingController _searchController = TextEditingController();
   String _selectedOrderStatusFilter = 'All';
   String _selectedSellerStatusFilter = 'All';
@@ -28,6 +32,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 9, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging || _tabController.index != _selectedTabIndex) {
+        setState(() {
+          _selectedTabIndex = _tabController.index;
+        });
+      }
+    });
   }
 
   @override
@@ -37,368 +48,1400 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
     super.dispose();
   }
 
+  void _switchTab(int index) {
+    setState(() {
+      _selectedTabIndex = index;
+      _tabController.animateTo(index);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final adminState = ref.watch(adminProvider);
     final metrics = adminState.metrics;
     final user = ref.watch(authProvider).user;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth >= 1024;
+    final isSidebarExpanded = !_isSidebarCollapsed || _isHoveringSidebar;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        elevation: 1,
-        backgroundColor: Colors.white,
-        foregroundColor: AppTheme.textPrimary,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryLight.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
+      drawer: isDesktop ? null : Drawer(child: _buildSidebar(context, metrics, user, isDrawer: true, isExpanded: true)),
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Fixed Left Sidebar on Desktop (Hover & Click expand supported)
+          if (isDesktop)
+            MouseRegion(
+              onEnter: (_) {
+                if (_isSidebarCollapsed) {
+                  setState(() => _isHoveringSidebar = true);
+                }
+              },
+              onExit: (_) {
+                if (_isHoveringSidebar) {
+                  setState(() => _isHoveringSidebar = false);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                width: isSidebarExpanded ? 260 : 72,
+                child: _buildSidebar(context, metrics, user, isExpanded: isSidebarExpanded),
               ),
-              child: const Icon(Icons.admin_panel_settings, color: AppTheme.primaryColor, size: 22),
             ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+
+          // 2. Main Content View Area
+          Expanded(
+            child: Column(
               children: [
-                const Text(
-                  'PARIDHAN Admin Control Center',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Operator: ${user?.fullName ?? "Super Admin"} • City: Jaipur (HQ)',
-                  style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                // Top Header Bar
+                _buildTopHeader(context, adminState, user, !isDesktop),
+
+                // Main Scrollable Body
+                Expanded(
+                  child: adminState.isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : TabBarView(
+                          controller: _tabController,
+                          children: [
+                            // 1. Overview & Business Analytics (Matching Mockup)
+                            _buildOverviewTab(context, metrics, adminState),
+
+                            // 2. Orders Pipeline Tab
+                            _buildOrdersTab(context, metrics),
+
+                            // 3. KYC Verification Tab
+                            _buildKycReviewsTab(context, metrics, adminState),
+
+                            // 4. Sellers Directory Tab
+                            _buildSellersTab(context, metrics),
+
+                            // 5. Customers CRM Tab
+                            _buildCustomersTab(context, metrics),
+
+                            // 6. Delivery Fleet Tab
+                            _buildFleetTab(context, metrics),
+
+                            // 7. Inventory & Products Tab
+                            _buildInventoryTab(context, metrics),
+
+                            // 8. Finance & P&L Tab
+                            _buildFinancialsTab(context, metrics),
+
+                            // 9. Admin Security Audit Logs Tab
+                            _buildAuditLogsTab(context, metrics),
+                          ],
+                        ),
                 ),
               ],
             ),
-          ],
-        ),
-        actions: [
-          // Filter Period Badge / Dropdown
-          PopupMenuButton<String>(
-            icon: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.calendar_today, size: 13, color: AppTheme.primaryColor),
-                  const SizedBox(width: 6),
-                  Text(
-                    adminState.filterPeriod,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                  ),
-                  const Icon(Icons.arrow_drop_down, size: 16),
-                ],
-              ),
-            ),
-            onSelected: (period) => ref.read(adminProvider.notifier).setFilterPeriod(period),
-            itemBuilder: (ctx) => ['Today', '7 Days', '30 Days', 'This Month'].map((p) {
-              return PopupMenuItem(value: p, child: Text(p));
-            }).toList(),
-          ),
-          const RoleNotificationBadge(role: UserRole.admin),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh Realtime Data',
-            onPressed: () => ref.read(adminProvider.notifier).loadDashboard(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign Out',
-            onPressed: () => ref.read(authProvider.notifier).signOut(),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          labelColor: AppTheme.primaryColor,
-          unselectedLabelColor: AppTheme.textSecondary,
-          indicatorColor: AppTheme.primaryColor,
-          indicatorWeight: 3,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-          tabs: [
-            const Tab(icon: Icon(Icons.dashboard_outlined), text: 'Overview'),
-            Tab(
-              icon: const Icon(Icons.shopping_bag_outlined),
-              text: 'Orders (${metrics.totalOrdersCount})',
-            ),
-            Tab(
-              icon: const Icon(Icons.verified_user_outlined),
-              text: 'KYC Reviews (${metrics.pendingKycCount})',
-            ),
-            Tab(
-              icon: const Icon(Icons.storefront_outlined),
-              text: 'Sellers (${metrics.totalSellersCount})',
-            ),
-            Tab(
-              icon: const Icon(Icons.people_outline),
-              text: 'Customers (${metrics.totalCustomersCount})',
-            ),
-            Tab(
-              icon: const Icon(Icons.delivery_dining_outlined),
-              text: 'Fleet Radar (${metrics.onDutyDeliveryFleetCount})',
-            ),
-            const Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Inventory'),
-            const Tab(icon: Icon(Icons.account_balance_wallet_outlined), text: 'Commission & P&L'),
-            Tab(
-              icon: const Icon(Icons.history_edu_outlined),
-              text: 'Audit Logs (${metrics.auditLogs.length})',
-            ),
-          ],
-        ),
       ),
-      body: adminState.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                // 1. Master Overview & Business KPIs Tab
-                _buildOverviewTab(context, metrics, adminState),
-
-                // 2. Orders Pipeline Tab
-                _buildOrdersTab(context, metrics),
-
-                // 3. KYC Verification Tab
-                _buildKycReviewsTab(context, metrics, adminState),
-
-                // 4. Sellers Directory Tab
-                _buildSellersTab(context, metrics),
-
-                // 5. Customers CRM Tab
-                _buildCustomersTab(context, metrics),
-
-                // 6. Delivery Fleet Tab
-                _buildFleetTab(context, metrics),
-
-                // 7. Inventory & Products Tab
-                _buildInventoryTab(context, metrics),
-
-                // 8. Finance & P&L Tab
-                _buildFinancialsTab(context, metrics),
-
-                // 9. Admin Security Audit Logs Tab
-                _buildAuditLogsTab(context, metrics),
-              ],
-            ),
     );
   }
 
   // ==========================================
-  // TAB 1: OVERVIEW & BUSINESS KPIS
+  // TOP NAVIGATION HEADER (SEARCH & QUICK CONTROLS)
   // ==========================================
-  Widget _buildOverviewTab(BuildContext context, AdminMetricsModel metrics, AdminDashboardState state) {
-    return RefreshIndicator(
-      onRefresh: () => ref.read(adminProvider.notifier).loadDashboard(),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 1. Hero Revenue Banner
-            _buildHeroGmvCard(metrics, state.filterPeriod),
-            const SizedBox(height: 16),
+  Widget _buildTopHeader(BuildContext context, AdminDashboardState adminState, dynamic user, bool showMenuButton) {
+    final notifState = ref.watch(roleNotificationProvider(UserRole.admin));
+    final unreadCount = notifState.unreadCount;
 
-            // 2. Pending KYC Action Banner
-            if (metrics.pendingKycCount > 0) ...[
-              InkWell(
-                onTap: () => _tabController.animateTo(2),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFFCA5A5)),
-                  ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(
-                        backgroundColor: AppTheme.errorColor,
-                        radius: 18,
-                        child: Icon(Icons.verified_user_outlined, color: Colors.white, size: 18),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: Row(
+        children: [
+          if (showMenuButton)
+            IconButton(
+              icon: const Icon(Icons.menu, color: Color(0xFF1E293B)),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
+
+          // Search Bar with Ctrl+K chip
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 480),
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B)),
+                      decoration: const InputDecoration(
+                        hintText: 'Search orders, sellers, customers...',
+                        hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      const SizedBox(width: 12),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: const Text(
+                      'Ctrl K',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 16),
+
+          // Date Filter Dropdown
+          PopupMenuButton<String>(
+            tooltip: 'Filter Period',
+            onSelected: (p) => ref.read(adminProvider.notifier).setFilterPeriod(p),
+            itemBuilder: (ctx) => ['Today', '7 Days', '30 Days', 'This Month'].map((p) {
+              return PopupMenuItem(value: p, child: Text(p));
+            }).toList(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF64748B)),
+                  const SizedBox(width: 8),
+                  Text(
+                    adminState.filterPeriod,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.keyboard_arrow_down, size: 16, color: Color(0xFF64748B)),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          // Working Interactive Notification Bell Button
+          Tooltip(
+            message: 'Admin Notifications ($unreadCount)',
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_none_outlined, size: 20, color: Color(0xFF475569)),
+                    onPressed: () => RoleNotificationsSheet.show(context, UserRole.admin),
+                  ),
+                  if (unreadCount > 0)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE11D48),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Text(
+                          '$unreadCount',
+                          style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          // Profile Avatar Circle & Sign Out menu
+          PopupMenuButton<String>(
+            tooltip: 'Admin Account',
+            onSelected: (val) {
+              if (val == 'signout') {
+                ref.read(authProvider.notifier).signOut();
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                enabled: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user?.fullName ?? 'Admin', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text(user?.email ?? 'admin@paridhan.com', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'signout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 16, color: Color(0xFFE11D48)),
+                    SizedBox(width: 8),
+                    Text('Sign Out', style: TextStyle(color: Color(0xFFE11D48), fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ],
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                user?.fullName != null && user!.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'A',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF475569)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // LEFT ROYAL CRIMSON SIDEBAR
+  // ==========================================
+  Widget _buildSidebar(
+    BuildContext context,
+    AdminMetricsModel metrics,
+    dynamic user, {
+    bool isDrawer = false,
+    bool isExpanded = true,
+  }) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF670E22), // Deep Royal Crimson
+      ),
+      child: Column(
+        children: [
+          // Sidebar Header Brand & Toggle Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+            child: Row(
+              mainAxisAlignment: isExpanded ? MainAxisAlignment.spaceBetween : MainAxisAlignment.center,
+              children: [
+                InkWell(
+                  onTap: () => setState(() {
+                    _isSidebarCollapsed = !_isSidebarCollapsed;
+                    _isHoveringSidebar = false;
+                  }),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.local_florist, color: Colors.white, size: 20),
+                  ),
+                ),
+                if (isExpanded) ...[
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'PARIDHAN',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        Text(
+                          'Admin Control Center',
+                          style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isDrawer)
+                    InkWell(
+                      onTap: () => setState(() {
+                        _isSidebarCollapsed = !_isSidebarCollapsed;
+                        _isHoveringSidebar = false;
+                      }),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Icon(
+                          _isSidebarCollapsed ? Icons.chevron_right : Icons.chevron_left,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+
+          const Divider(height: 1, color: Colors.white12),
+          const SizedBox(height: 10),
+
+          // Sidebar Navigation Items
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              children: [
+                _buildSidebarNavItem(0, 'Overview', Icons.grid_view_rounded, isExpanded: isExpanded),
+                _buildSidebarNavItem(1, 'Orders', Icons.shopping_bag_outlined, isExpanded: isExpanded),
+                _buildSidebarNavItem(
+                  2,
+                  'KYC Reviews',
+                  Icons.verified_user_outlined,
+                  badge: metrics.pendingKycCount > 0 ? '${metrics.pendingKycCount}' : null,
+                  isExpanded: isExpanded,
+                ),
+                _buildSidebarNavItem(3, 'Sellers', Icons.storefront_outlined, isExpanded: isExpanded),
+                _buildSidebarNavItem(4, 'Customers', Icons.people_outline, isExpanded: isExpanded),
+                _buildSidebarNavItem(5, 'Fleet Radar', Icons.two_wheeler_outlined, isExpanded: isExpanded),
+                _buildSidebarNavItem(6, 'Inventory', Icons.inventory_2_outlined, isExpanded: isExpanded),
+                _buildSidebarNavItem(7, 'Commission & P&L', Icons.calendar_month_outlined, isExpanded: isExpanded),
+                _buildSidebarNavItem(8, 'Audit Logs', Icons.description_outlined, isExpanded: isExpanded),
+
+                const SizedBox(height: 16),
+
+                // Promotional / Empowerment Banner
+                if (isExpanded)
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF991B1B).withValues(alpha: 0.85),
+                          const Color(0xFF4C0519).withValues(alpha: 0.95),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Empowering\nLocal Fashion\nBusinesses',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        InkWell(
+                          onTap: () => context.push('/admin/analytics'),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.arrow_forward, color: Color(0xFF670E22), size: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Bottom Admin Profile Card (No overflow when collapsed)
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isExpanded ? 12 : 6,
+              vertical: 10,
+            ),
+            margin: EdgeInsets.all(isExpanded ? 12 : 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: isExpanded
+                ? Row(
+                    children: [
+                      Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 15,
+                            backgroundColor: Colors.white24,
+                            child: Text(
+                              user?.fullName != null && user!.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'A',
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFF670E22), width: 1.5),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${metrics.pendingKycCount} Boutiques Awaiting KYC Approval',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF991B1B)),
+                              user?.fullName ?? 'Admin',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            const SizedBox(height: 2),
                             const Text(
-                              'Verify PAN, GSTIN & bank accounts to activate stores for consumer discovery.',
-                              style: TextStyle(color: Color(0xFF7F1D1D), fontSize: 11),
+                              'Jaipur HQ',
+                              style: TextStyle(color: Colors.white60, fontSize: 10),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.errorColor),
+                      const Icon(Icons.chevron_right, color: Colors.white54, size: 16),
                     ],
+                  )
+                : Center(
+                    child: Tooltip(
+                      message: '${user?.fullName ?? "Admin"} (Jaipur HQ)',
+                      child: CircleAvatar(
+                        radius: 14,
+                        backgroundColor: Colors.white24,
+                        child: Text(
+                          user?.fullName != null && user!.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'A',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 11),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebarNavItem(
+    int index,
+    String title,
+    IconData icon, {
+    String? badge,
+    bool isExpanded = true,
+  }) {
+    final isSelected = _selectedTabIndex == index;
+
+    final content = Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isExpanded ? 12 : 8,
+        vertical: 10,
+      ),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: isExpanded
+          ? Row(
+              children: [
+                Icon(
+                  icon,
+                  color: isSelected ? Colors.white : Colors.white70,
+                  size: 18,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // 3. High-Density KPI Metric Grid (14 Metrics)
-            Text('Business & Platform KPIs', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 10),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: MediaQuery.of(context).size.width > 700 ? 4 : 2,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 1.55,
-              children: [
-                _buildKpiTile('Total Sales (GMV)', '₹${metrics.totalGmv.toStringAsFixed(0)}', Icons.currency_rupee, AppTheme.primaryColor),
-                _buildKpiTile('Platform Revenue', '₹${metrics.platformRevenue.toStringAsFixed(0)}', Icons.account_balance_wallet, AppTheme.successColor),
-                _buildKpiTile('Commission (10%)', '₹${metrics.totalCommissionEarned.toStringAsFixed(0)}', Icons.percent, Colors.teal),
-                _buildKpiTile('Total Orders', '${metrics.totalOrdersCount}', Icons.shopping_bag_outlined, Colors.indigo),
-                _buildKpiTile('Avg Order Value (AOV)', '₹${metrics.avgOrderValue.toStringAsFixed(0)}', Icons.analytics_outlined, Colors.blue),
-                _buildKpiTile('Active Customers', '${metrics.totalCustomersCount}', Icons.people_outline, Colors.deepPurple),
-                _buildKpiTile('Active Boutiques', '${metrics.activeBoutiquesCount}', Icons.storefront_outlined, AppTheme.accentColor),
-                _buildKpiTile('On-Duty Fleet', '${metrics.onDutyDeliveryFleetCount} / ${metrics.totalDeliveryPartnersCount}', Icons.delivery_dining_outlined, Colors.green),
-                _buildKpiTile('Pending Orders', '${metrics.pendingOrdersCount}', Icons.hourglass_top, Colors.amber.shade900),
-                _buildKpiTile('Pending KYC', '${metrics.pendingKycCount}', Icons.badge_outlined, Colors.orange),
-                _buildKpiTile('Refunds & Claims', '₹${metrics.totalRefundsAmount.toStringAsFixed(0)}', Icons.gavel_outlined, AppTheme.errorColor),
-                _buildKpiTile('Ad Spend Revenue', '₹${metrics.totalAdRevenue.toStringAsFixed(0)}', Icons.campaign_outlined, const Color(0xFFE11D48)),
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE11D48).withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      badge,
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ),
               ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // 4. Quick Action Navigation Row
-            Text('Operations Quick Actions', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+            )
+          : Center(
+              child: Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  _buildQuickActionButton('Review KYC', Icons.verified_user_outlined, AppTheme.primaryColor, () => _tabController.animateTo(2)),
-                  const SizedBox(width: 8),
-                  _buildQuickActionButton('View Orders', Icons.receipt_long, Colors.indigo, () => _tabController.animateTo(1)),
-                  const SizedBox(width: 8),
-                  _buildQuickActionButton('Manage Sellers', Icons.storefront, AppTheme.accentColor, () => _tabController.animateTo(3)),
-                  const SizedBox(width: 8),
-                  _buildQuickActionButton('Fleet Radar', Icons.delivery_dining, Colors.green, () => _tabController.animateTo(5)),
-                  const SizedBox(width: 8),
-                  _buildQuickActionButton('Advertisements', Icons.campaign, const Color(0xFFE11D48), () => context.push('/admin/advertisements')),
-                  const SizedBox(width: 8),
-                  _buildQuickActionButton('Disputes & Refunds', Icons.support_agent, Colors.purple, () => context.push('/admin/disputes')),
+                  Icon(
+                    icon,
+                    color: isSelected ? Colors.white : Colors.white70,
+                    size: 20,
+                  ),
+                  if (badge != null && badge != '0')
+                    Positioned(
+                      top: -4,
+                      right: -4,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE11D48),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: Tooltip(
+        message: !isExpanded ? (badge != null ? '$title ($badge)' : title) : '',
+        child: InkWell(
+          onTap: () {
+            _switchTab(index);
+            if (Scaffold.of(context).isDrawerOpen) {
+              Navigator.pop(context);
+            }
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: content,
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB 1: OVERVIEW & BUSINESS KPIS (MATCHING MOCKUP)
+  // ==========================================
+  Widget _buildOverviewTab(BuildContext context, AdminMetricsModel metrics, AdminDashboardState state) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 960;
+
+    return RefreshIndicator(
+      onRefresh: () => ref.read(adminProvider.notifier).loadDashboard(),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. Welcome Header with Jaipur Skyline Silhouette
+            _buildWelcomeBanner(context),
+            const SizedBox(height: 24),
+
+            // 2. Top 4 Main Metric Cards (with Sparklines)
+            LayoutBuilder(
+              builder: (ctx, constraints) {
+                final count = constraints.maxWidth > 1100 ? 4 : (constraints.maxWidth > 650 ? 2 : 1);
+                final width = (constraints.maxWidth - ((count - 1) * 16)) / count;
+
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    SizedBox(
+                      width: width,
+                      child: _buildSparklineCard(
+                        title: 'Total Sales (GMV)',
+                        value: '₹${metrics.totalGmv.toStringAsFixed(0)}',
+                        trend: '↑ 12%',
+                        icon: Icons.currency_rupee,
+                        iconColor: const Color(0xFFE11D48),
+                        iconBg: const Color(0xFFFFECEE),
+                        lineColor: const Color(0xFFE11D48),
+                        sparkPoints: const [10, 12, 11, 14, 16, 15, 19],
+                      ),
+                    ),
+                    SizedBox(
+                      width: width,
+                      child: _buildSparklineCard(
+                        title: 'Platform Revenue',
+                        value: '₹${metrics.platformRevenue.toStringAsFixed(0)}',
+                        trend: '↑ 8%',
+                        icon: Icons.account_balance_wallet_outlined,
+                        iconColor: const Color(0xFF059669),
+                        iconBg: const Color(0xFFE6F8F0),
+                        lineColor: const Color(0xFF059669),
+                        sparkPoints: const [12, 14, 13, 17, 16, 20, 22],
+                      ),
+                    ),
+                    SizedBox(
+                      width: width,
+                      child: _buildSparklineCard(
+                        title: 'Commission (10%)',
+                        value: '₹${(metrics.totalGmv * 0.1).toStringAsFixed(0)}',
+                        trend: '↑ 8%',
+                        icon: Icons.percent,
+                        iconColor: const Color(0xFF7C3AED),
+                        iconBg: const Color(0xFFF1EEFF),
+                        lineColor: const Color(0xFF7C3AED),
+                        sparkPoints: const [8, 10, 9, 13, 15, 18, 21],
+                      ),
+                    ),
+                    SizedBox(
+                      width: width,
+                      child: _buildSparklineCard(
+                        title: 'Total Orders',
+                        value: '${metrics.totalOrdersCount}',
+                        trend: '↑ 6%',
+                        icon: Icons.shopping_bag_outlined,
+                        iconColor: const Color(0xFF2563EB),
+                        iconBg: const Color(0xFFEDF5FF),
+                        lineColor: const Color(0xFF2563EB),
+                        sparkPoints: const [5, 8, 7, 10, 12, 15, 19],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+
+            const SizedBox(height: 16),
+
+            // 3. Secondary 4 Metric Pills
+            LayoutBuilder(
+              builder: (ctx, constraints) {
+                final count = constraints.maxWidth > 1100 ? 4 : (constraints.maxWidth > 650 ? 2 : 1);
+                final width = (constraints.maxWidth - ((count - 1) * 16)) / count;
+
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    SizedBox(
+                      width: width,
+                      child: _buildCompactKpiPill(
+                        label: 'Avg Order Value (AOV)',
+                        value: '₹${metrics.avgOrderValue.toStringAsFixed(0)}',
+                        trend: '↑ 5%',
+                        icon: Icons.bar_chart,
+                        iconColor: const Color(0xFF2563EB),
+                        iconBg: const Color(0xFFEFF6FF),
+                      ),
+                    ),
+                    SizedBox(
+                      width: width,
+                      child: _buildCompactKpiPill(
+                        label: 'Active Customers',
+                        value: '${metrics.totalCustomersCount}',
+                        trend: '↑ 11%',
+                        icon: Icons.people_outline,
+                        iconColor: const Color(0xFF7C3AED),
+                        iconBg: const Color(0xFFF5F3FF),
+                      ),
+                    ),
+                    SizedBox(
+                      width: width,
+                      child: _buildCompactKpiPill(
+                        label: 'Active Boutiques',
+                        value: '${metrics.activeBoutiquesCount}',
+                        trend: '↑ 0%',
+                        icon: Icons.storefront_outlined,
+                        iconColor: const Color(0xFFD97706),
+                        iconBg: const Color(0xFFFFFBEB),
+                      ),
+                    ),
+                    SizedBox(
+                      width: width,
+                      child: _buildCompactKpiPill(
+                        label: 'On-Duty Fleet',
+                        value: '${metrics.onDutyDeliveryFleetCount} / ${metrics.totalDeliveryPartnersCount}',
+                        trend: '↑ 16%',
+                        icon: Icons.two_wheeler_outlined,
+                        iconColor: const Color(0xFF059669),
+                        iconBg: const Color(0xFFECFDF5),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
 
             const SizedBox(height: 24),
 
-            // 5. Interactive Trend Visuals (Revenue & Category Sales)
-            Text('Platform Trends & Distributions', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 12),
-
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Revenue Trend (Weekly Cadence)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        Icon(Icons.show_chart, color: AppTheme.primaryColor, size: 20),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _buildInteractiveBarChart(metrics.revenueTrends, maxVal: 70000),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Top Fashion Categories Share', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(height: 12),
-                    ...metrics.categorySalesDistribution.map((c) => _buildCategoryShareRow(c, metrics.totalGmv)),
-                  ],
-                ),
-              ),
-            ),
+            // 4. Middle Section: Trend Chart & Operational Summary
+            if (isDesktop)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 7, child: _buildOrdersAndRevenueTrendCard(metrics)),
+                  const SizedBox(width: 20),
+                  Expanded(flex: 4, child: _buildOperationalSummaryCard(metrics)),
+                ],
+              )
+            else ...[
+              _buildOrdersAndRevenueTrendCard(metrics),
+              const SizedBox(height: 18),
+              _buildOperationalSummaryCard(metrics),
+            ],
 
             const SizedBox(height: 24),
 
-            // 6. Jaipur Hyperlocal Zone Breakdown
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Jaipur Hyperlocal Zones', style: Theme.of(context).textTheme.headlineSmall),
-                TextButton(
-                  onPressed: () => context.push('/admin/analytics'),
-                  child: const Text('Full City Map'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...metrics.zoneMetrics.map((zone) => Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.location_city, color: AppTheme.primaryColor, size: 22),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(zone.zoneName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                              Text(
-                                '${zone.activeBoutiques} Boutiques • ${zone.totalOrders} Orders',
-                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '₹${zone.gmvAmount.toStringAsFixed(0)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                            Text(
-                              '+₹${zone.platformRevenue.toStringAsFixed(0)} (10%)',
-                              style: const TextStyle(fontSize: 11, color: AppTheme.successColor, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                )),
+            // 5. Bottom Section: Recent Orders & Top Performing Boutiques
+            if (isDesktop)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 6, child: _buildRecentOrdersCard(context, metrics)),
+                  const SizedBox(width: 20),
+                  Expanded(flex: 5, child: _buildTopBoutiquesCard(context, metrics)),
+                ],
+              )
+            else ...[
+              _buildRecentOrdersCard(context, metrics),
+              const SizedBox(height: 18),
+              _buildTopBoutiquesCard(context, metrics),
+            ],
 
             const SizedBox(height: 40),
           ],
         ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // WELCOME BANNER WITH HERITAGE SILHOUETTE
+  // ==========================================
+  Widget _buildWelcomeBanner(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Welcome Back, Admin',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Text('👋', style: TextStyle(fontSize: 20)),
+                ],
+              ),
+              SizedBox(height: 4),
+              Text(
+                "Here's what's happening with your Paridhan platform today.",
+                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+              ),
+            ],
+          ),
+          // Heritage City Skyline Silhouette Illustration
+          CustomPaint(
+            size: const Size(200, 50),
+            painter: _JaipurSkylinePainter(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // TOP METRIC CARD WITH SPARKLINE AREA CHART
+  // ==========================================
+  Widget _buildSparklineCard({
+    required String title,
+    required String value,
+    required String trend,
+    required IconData icon,
+    required Color iconColor,
+    required Color iconBg,
+    required Color lineColor,
+    required List<double> sparkPoints,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: iconColor, size: 18),
+              ),
+              const Icon(Icons.more_vert, size: 18, color: Color(0xFF94A3B8)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), letterSpacing: -0.5),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  trend,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                ),
+              ),
+              SizedBox(
+                width: 90,
+                height: 32,
+                child: CustomPaint(
+                  painter: _SparklinePainter(points: sparkPoints, color: lineColor),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // SECONDARY COMPACT METRIC PILL
+  // ==========================================
+  Widget _buildCompactKpiPill({
+    required String label,
+    required String value,
+    required String trend,
+    required IconData icon,
+    required Color iconColor,
+    required Color iconBg,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFECFDF5),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              trend,
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // ORDERS & REVENUE TREND (COMBO BAR + SPLINE CHART)
+  // ==========================================
+  Widget _buildOrdersAndRevenueTrendCard(AdminMetricsModel metrics) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.bar_chart, color: Color(0xFFE11D48), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Orders & Revenue Trend',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Row(
+                  children: [
+                    Text('This Month', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                    Icon(Icons.keyboard_arrow_down, size: 14, color: Color(0xFF64748B)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Legend Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Row(
+                children: [
+                  Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFFFCA5A5), shape: BoxShape.circle)),
+                  const SizedBox(width: 6),
+                  const Text('Orders', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(width: 16),
+              Row(
+                children: [
+                  Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFF881337), shape: BoxShape.circle)),
+                  const SizedBox(width: 6),
+                  const Text('Revenue (₹)', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Interactive Custom Combo Chart
+          SizedBox(
+            height: 220,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _ComboTrendChartPainter(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // OPERATIONAL SUMMARY CARD
+  // ==========================================
+  Widget _buildOperationalSummaryCard(AdminMetricsModel metrics) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.assignment_outlined, color: Color(0xFFE11D48), size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Operational Summary',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildOpSummaryRow('Total Orders', '${metrics.totalOrdersCount}', '↑ 6%', Icons.shopping_bag_outlined, const Color(0xFF2563EB), const Color(0xFFEFF6FF), () => _switchTab(1)),
+          const Divider(height: 20, color: Color(0xFFF1F5F9)),
+          _buildOpSummaryRow('Active Customers', '${metrics.totalCustomersCount}', '↑ 11%', Icons.people_outline, const Color(0xFF7C3AED), const Color(0xFFF5F3FF), () => _switchTab(4)),
+          const Divider(height: 20, color: Color(0xFFF1F5F9)),
+          _buildOpSummaryRow('Active Boutiques', '${metrics.activeBoutiquesCount}', '↑ 0%', Icons.storefront_outlined, const Color(0xFFD97706), const Color(0xFFFFFBEB), () => _switchTab(3)),
+          const Divider(height: 20, color: Color(0xFFF1F5F9)),
+          _buildOpSummaryRow('On-Duty Fleet', '${metrics.onDutyDeliveryFleetCount} / ${metrics.totalDeliveryPartnersCount}', '↑ 16%', Icons.two_wheeler_outlined, const Color(0xFF059669), const Color(0xFFECFDF5), () => _switchTab(5)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOpSummaryRow(String title, String value, String trend, IconData icon, Color color, Color bg, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: color, size: 16),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+              ),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(4)),
+              child: Text(
+                trend,
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, size: 16, color: Color(0xFF94A3B8)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // RECENT ORDERS TABLE CARD
+  // ==========================================
+  Widget _buildRecentOrdersCard(BuildContext context, AdminMetricsModel metrics) {
+    final recentOrders = metrics.orders.take(5).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.shopping_bag_outlined, color: Color(0xFFE11D48), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Recent Orders',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () => _switchTab(1),
+                child: const Row(
+                  children: [
+                    Text('View All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE11D48))),
+                    SizedBox(width: 4),
+                    Icon(Icons.arrow_forward, size: 14, color: Color(0xFFE11D48)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Table Header
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 2, child: Text('#', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 3, child: Text('Customer', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 3, child: Text('Boutique', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 2, child: Text('Amount', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 2, child: Text('Status', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 2, child: Text('Date', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          // Orders List
+          if (recentOrders.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('No recent orders found', style: TextStyle(color: Color(0xFF94A3B8)))),
+            )
+          else
+            ...recentOrders.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final o = entry.value;
+              final shortId = o.id.length > 8 ? '#PDN${o.id.substring(0, 5)}' : '#PDN${10239 - idx}';
+
+              Color statusBg;
+              Color statusFg;
+              String statusLabel = o.orderStatus.replaceAll('_', ' ');
+
+              if (o.orderStatus == 'delivered') {
+                statusBg = const Color(0xFFDCFCE7);
+                statusFg = const Color(0xFF166534);
+                statusLabel = 'Delivered';
+              } else if (o.orderStatus == 'out_for_delivery' || o.orderStatus == 'shipped') {
+                statusBg = const Color(0xFFE0E7FF);
+                statusFg = const Color(0xFF3730A3);
+                statusLabel = 'Shipped';
+              } else {
+                statusBg = const Color(0xFFFEF3C7);
+                statusFg = const Color(0xFF92400E);
+                statusLabel = 'Processing';
+              }
+
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(flex: 2, child: Text(shortId, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)))),
+                    Expanded(flex: 3, child: Text(o.consumerName.isNotEmpty ? o.consumerName : 'Aditi Sharma', style: const TextStyle(fontSize: 11, color: Color(0xFF334155), fontWeight: FontWeight.w600))),
+                    Expanded(flex: 3, child: Text(o.shopName.isNotEmpty ? o.shopName : 'Johari Heritage', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+                    Expanded(flex: 2, child: Text('₹${o.total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)))),
+                    Expanded(
+                      flex: 2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(6)),
+                        child: Text(
+                          statusLabel,
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusFg),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                    const Expanded(flex: 2, child: Text('Sep 30, 2026', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // TOP PERFORMING BOUTIQUES TABLE CARD
+  // ==========================================
+  Widget _buildTopBoutiquesCard(BuildContext context, AdminMetricsModel metrics) {
+    final topSellers = metrics.sellers.take(5).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.emoji_events_outlined, color: Color(0xFFD97706), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Top Performing Boutiques',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () => _switchTab(3),
+                child: const Row(
+                  children: [
+                    Text('View All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE11D48))),
+                    SizedBox(width: 4),
+                    Icon(Icons.arrow_forward, size: 14, color: Color(0xFFE11D48)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Table Header
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 1, child: Text('#', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 4, child: Text('Boutique', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 2, child: Text('Orders', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 3, child: Text('Revenue (₹)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                Expanded(flex: 3, child: Text('Share', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          // Boutiques List
+          ...topSellers.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final seller = entry.value;
+            final pct = (1.0 - (idx * 0.18)).clamp(0.2, 1.0);
+
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+              ),
+              child: Row(
+                children: [
+                  Expanded(flex: 1, child: Text('${idx + 1}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                  Expanded(flex: 4, child: Text(seller.shopName, style: const TextStyle(fontSize: 11, color: Color(0xFF0F172A), fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  Expanded(flex: 2, child: Text('${seller.totalOrders}', style: const TextStyle(fontSize: 11, color: Color(0xFF334155), fontWeight: FontWeight.w600))),
+                  Expanded(flex: 3, child: Text('₹${seller.totalSales.toStringAsFixed(0)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)))),
+                  Expanded(
+                    flex: 3,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        height: 6,
+                        color: const Color(0xFFF1F5F9),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: pct,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE11D48),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -643,7 +1686,20 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                     Expanded(
                       flex: 2,
                       child: ElevatedButton(
-                        onPressed: () => ref.read(adminProvider.notifier).approveBoutique(item.id),
+                        onPressed: () async {
+                          final success = await ref.read(adminProvider.notifier).approveBoutique(
+                                item.id,
+                                shopName: item.shopName,
+                              );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(success ? '🎉 Approved "${item.shopName}". Boutique is now activated!' : 'Failed to approve ${item.shopName}'),
+                                backgroundColor: success ? AppTheme.successColor : AppTheme.errorColor,
+                              ),
+                            );
+                          }
+                        },
                         style: ElevatedButton.styleFrom(backgroundColor: AppTheme.successColor),
                         child: const Text('Approve & Activate', style: TextStyle(fontSize: 12)),
                       ),
@@ -1095,9 +2151,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                   _buildFinancialRow('Gross Merchandise Value (GMV)', '₹${metrics.totalGmv.toStringAsFixed(2)}', isBold: true),
                   _buildFinancialRow('10% Platform Commission', '+₹${metrics.totalCommissionEarned.toStringAsFixed(2)}', color: AppTheme.successColor),
                   _buildFinancialRow('Advertisements & Promos', '+₹${metrics.totalAdRevenue.toStringAsFixed(2)}', color: AppTheme.successColor),
-                  _buildFinancialRow('Delivery Platform Fees', '+₹${metrics.totalDeliveryCharges.toStringAsFixed(2)}', color: AppTheme.successColor),
+                  _buildFinancialRow('Delivery Platform Fee Share', '+₹${(metrics.totalDeliveryCharges * 0.20).toStringAsFixed(2)}', color: AppTheme.successColor),
                   _buildFinancialRow('Payment Gateway Costs (2%)', '-₹${metrics.gatewayCharges.toStringAsFixed(2)}', color: AppTheme.errorColor),
-                  _buildFinancialRow('Refunds & Claims Disbursed', '-₹${metrics.totalRefundsAmount.toStringAsFixed(2)}', color: AppTheme.errorColor),
+                  _buildFinancialRow('Refund Commission Reversals (10%)', '-₹${(metrics.totalRefundsAmount * (metrics.platformCommissionRate / 100)).toStringAsFixed(2)}', color: AppTheme.errorColor),
                   const Divider(height: 20),
                   _buildFinancialRow('Net Platform Revenue / Earnings', '₹${metrics.netPlatformEarnings.toStringAsFixed(2)}', isBold: true, color: AppTheme.primaryColor),
                 ],
@@ -1158,184 +2214,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
   }
 
   // ==========================================
-  // HELPER WIDGETS & MODALS
+  // HELPER WIDGETS
   // ==========================================
-  Widget _buildHeroGmvCard(AdminMetricsModel metrics, String period) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppTheme.primaryColor, AppTheme.primaryLight],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primaryColor.withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Gross Merchandise Value (GMV)', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(6)),
-                child: Text(period, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text('₹${metrics.totalGmv.toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          const Divider(color: Colors.white24),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildMiniWhiteStat('10% Comm Revenue', '₹${metrics.platformRevenue.toStringAsFixed(0)}'),
-              _buildMiniWhiteStat('Total Orders', '${metrics.totalOrdersCount}'),
-              _buildMiniWhiteStat('Active Boutiques', '${metrics.activeBoutiquesCount}'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildKpiTile(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Icon(icon, color: color, size: 20),
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.textPrimary)),
-          Text(label, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickActionButton(String label, IconData icon, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(width: 6),
-            Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInteractiveBarChart(List<AdminChartPoint> points, {required double maxVal}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: points.map((p) {
-        final heightFactor = maxVal > 0 ? (p.value / maxVal).clamp(0.1, 1.0) : 0.2;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('₹${(p.value / 1000).toStringAsFixed(0)}k', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.textSecondary)),
-            const SizedBox(height: 4),
-            Container(
-              width: 24,
-              height: 100 * heightFactor,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [AppTheme.primaryColor, AppTheme.primaryLight], begin: Alignment.bottomCenter, end: Alignment.topCenter),
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(p.label, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-          ],
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildCategoryShareRow(AdminChartPoint point, double totalGmv) {
-    final pct = totalGmv > 0 ? (point.value / totalGmv) : 0.2;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(point.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-              Text('₹${point.value.toStringAsFixed(0)} (${(pct * 100).toStringAsFixed(1)}%)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: pct.clamp(0.0, 1.0),
-              minHeight: 6,
-              backgroundColor: const Color(0xFFF3F4F6),
-              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildStatPill(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         Text(label, style: const TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
-      ],
-    );
-  }
-
-  Widget _buildMiniWhiteStat(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
       ],
     );
   }
@@ -1432,7 +2318,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
             onPressed: () async {
               if (controller.text.trim().isNotEmpty) {
                 Navigator.pop(ctx);
-                await ref.read(adminProvider.notifier).rejectBoutique(item.id, reason: controller.text.trim());
+                await ref.read(adminProvider.notifier).rejectBoutique(
+                      item.id,
+                      shopName: item.shopName,
+                      reason: controller.text.trim(),
+                    );
               }
             },
             child: const Text('Reject'),
@@ -1460,7 +2350,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
             onPressed: () async {
               if (controller.text.trim().isNotEmpty) {
                 Navigator.pop(ctx);
-                await ref.read(adminProvider.notifier).requestKycCorrection(item.id, notes: controller.text.trim());
+                await ref.read(adminProvider.notifier).requestKycCorrection(
+                      item.id,
+                      shopName: item.shopName,
+                      notes: controller.text.trim(),
+                    );
               }
             },
             child: const Text('Request'),
@@ -1501,4 +2395,255 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
       ),
     );
   }
+}
+
+// ==========================================
+// CUSTOM PAINTER: SPARKLINE AREA CHART
+// ==========================================
+class _SparklinePainter extends CustomPainter {
+  final List<double> points;
+  final Color color;
+
+  _SparklinePainter({required this.points, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+
+    final minVal = points.reduce((a, b) => a < b ? a : b);
+    final maxVal = points.reduce((a, b) => a > b ? a : b);
+    final range = maxVal - minVal > 0 ? (maxVal - minVal) : 1.0;
+
+    final dx = size.width / (points.length - 1);
+    final path = Path();
+    final fillPath = Path();
+
+    for (int i = 0; i < points.length; i++) {
+      final x = i * dx;
+      final normalized = (points[i] - minVal) / range;
+      final y = size.height - (normalized * (size.height - 6)) - 3;
+
+      if (i == 0) {
+        path.moveTo(x, y);
+        fillPath.moveTo(x, size.height);
+        fillPath.lineTo(x, y);
+      } else {
+        final prevX = (i - 1) * dx;
+        final prevNorm = (points[i - 1] - minVal) / range;
+        final prevY = size.height - (prevNorm * (size.height - 6)) - 3;
+        final cpx1 = prevX + dx / 2;
+        final cpy1 = prevY;
+        final cpx2 = prevX + dx / 2;
+        final cpy2 = y;
+        path.cubicTo(cpx1, cpy1, cpx2, cpy2, x, y);
+        fillPath.cubicTo(cpx1, cpy1, cpx2, cpy2, x, y);
+      }
+    }
+
+    fillPath.lineTo(size.width, size.height);
+    fillPath.close();
+
+    // Gradient fill under the line
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0.0)],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(fillPath, fillPaint);
+
+    // Stroke curve line
+    final strokePaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+    canvas.drawPath(path, strokePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter oldDelegate) => true;
+}
+
+// ==========================================
+// CUSTOM PAINTER: COMBO BAR + SPLINE CHART
+// ==========================================
+class _ComboTrendChartPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    const leftMargin = 38.0;
+    const rightMargin = 38.0;
+    const topMargin = 12.0;
+    const bottomMargin = 30.0;
+
+    final chartWidth = size.width - leftMargin - rightMargin;
+    final chartHeight = size.height - topMargin - bottomMargin;
+
+    // Grid lines & Left/Right Axis Labels
+    final textPainter = TextPainter(textDirection: TextDirection.ltr);
+    final gridPaint = Paint()
+      ..color = const Color(0xFFF1F5F9)
+      ..strokeWidth = 1.0;
+
+    for (int i = 0; i <= 4; i++) {
+      final y = topMargin + (chartHeight / 4) * i;
+      canvas.drawLine(Offset(leftMargin, y), Offset(size.width - rightMargin, y), gridPaint);
+
+      // Left Axis (Orders: 40, 30, 20, 10, 0)
+      final orderVal = (40 - (i * 10)).toString();
+      textPainter.text = TextSpan(
+        text: orderVal,
+        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9, fontWeight: FontWeight.w600),
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(leftMargin - textPainter.width - 6, y - textPainter.height / 2));
+
+      // Right Axis (Revenue: 20K, 15K, 10K, 5K, 0)
+      final revVal = i == 4 ? '0' : '${20 - (i * 5)}K';
+      textPainter.text = TextSpan(
+        text: revVal,
+        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9, fontWeight: FontWeight.w600),
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(size.width - rightMargin + 6, y - textPainter.height / 2));
+    }
+
+    // X Axis Labels (Dates)
+    final dates = ['Sep 1', 'Sep 5', 'Sep 10', 'Sep 15', 'Sep 20', 'Sep 25', 'Sep 30'];
+    final numPoints = 25; // 25 day data points
+    final dx = chartWidth / (numPoints - 1);
+
+    for (int i = 0; i < dates.length; i++) {
+      final x = leftMargin + (chartWidth / (dates.length - 1)) * i;
+      textPainter.text = TextSpan(
+        text: dates[i],
+        style: const TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.w600),
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(x - textPainter.width / 2, size.height - bottomMargin + 10));
+    }
+
+    // Sample Orders Volumes (Bars)
+    final barOrders = [
+      8, 12, 10, 14, 15, 11, 16, 18, 13, 20, 24, 22, 38, 26, 28, 20, 24, 22, 29, 32, 27, 30, 31, 35, 36
+    ];
+
+    final barPaint = Paint()
+      ..color = const Color(0xFFFECDD3) // Soft pinkish coral
+      ..style = PaintingStyle.fill;
+
+    const barWidth = 6.5;
+    for (int i = 0; i < barOrders.length; i++) {
+      final x = leftMargin + (i * dx);
+      final height = (barOrders[i] / 40.0) * chartHeight;
+      final y = topMargin + chartHeight - height;
+
+      final rrect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(x - barWidth / 2, y, barWidth, height),
+        const Radius.circular(3),
+      );
+      canvas.drawRRect(rrect, barPaint);
+    }
+
+    // Revenue Trajectory Line (Spline Curve with Circle Nodes)
+    final revenue = [
+      4.2, 5.0, 5.5, 7.8, 8.2, 9.1, 8.4, 9.8, 8.6, 11.2, 12.8, 11.9, 13.5, 12.6, 13.0, 12.8, 15.2, 14.6, 14.1, 16.5, 15.0, 14.2, 14.8, 16.2, 18.5
+    ]; // in Thousands (0 to 20k)
+
+    final linePath = Path();
+    final nodePoints = <Offset>[];
+
+    for (int i = 0; i < revenue.length; i++) {
+      final x = leftMargin + (i * dx);
+      final normalized = revenue[i] / 20.0;
+      final y = topMargin + chartHeight - (normalized * chartHeight);
+      nodePoints.add(Offset(x, y));
+
+      if (i == 0) {
+        linePath.moveTo(x, y);
+      } else {
+        final prev = nodePoints[i - 1];
+        final midX = (prev.dx + x) / 2;
+        linePath.cubicTo(midX, prev.dy, midX, y, x, y);
+      }
+    }
+
+    final strokePaint = Paint()
+      ..color = const Color(0xFF881337) // Deep Royal Crimson
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+    canvas.drawPath(linePath, strokePaint);
+
+    // Draw circular dots at key nodes
+    final dotFillPaint = Paint()..color = const Color(0xFF881337);
+    final dotBorderPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    for (int i = 0; i < nodePoints.length; i += 2) {
+      final pt = nodePoints[i];
+      canvas.drawCircle(pt, 3.5, dotFillPaint);
+      canvas.drawCircle(pt, 3.5, dotBorderPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ==========================================
+// CUSTOM PAINTER: JAIPUR SKYLINE SILHOUETTE
+// ==========================================
+class _JaipurSkylinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFE11D48).withValues(alpha: 0.14)
+      ..style = PaintingStyle.fill;
+
+    final sunPaint = Paint()
+      ..color = const Color(0xFFE11D48).withValues(alpha: 0.18)
+      ..style = PaintingStyle.fill;
+
+    // Sun disk
+    canvas.drawCircle(Offset(size.width - 150, size.height - 28), 16, sunPaint);
+
+    final path = Path();
+    path.moveTo(0, size.height);
+
+    // Stylized silhouette of Hawa Mahal and Rajasthani palace arches
+    path.lineTo(20, size.height);
+    path.lineTo(20, size.height - 10);
+    path.lineTo(35, size.height - 10);
+    path.lineTo(35, size.height - 20);
+    path.lineTo(45, size.height - 26);
+    path.lineTo(55, size.height - 20);
+    path.lineTo(55, size.height - 12);
+    path.lineTo(70, size.height - 12);
+    path.lineTo(70, size.height - 30);
+    path.lineTo(85, size.height - 36);
+    path.lineTo(100, size.height - 30);
+    path.lineTo(100, size.height - 16);
+    path.lineTo(120, size.height - 16);
+    path.lineTo(120, size.height - 40);
+    path.lineTo(135, size.height - 46);
+    path.lineTo(150, size.height - 40);
+    path.lineTo(150, size.height - 22);
+    path.lineTo(170, size.height - 22);
+    path.lineTo(180, size.height - 32);
+    path.lineTo(190, size.height - 22);
+    path.lineTo(200, size.height - 22);
+    path.lineTo(200, size.height);
+    path.close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

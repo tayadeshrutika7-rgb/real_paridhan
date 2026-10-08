@@ -143,10 +143,10 @@ class AuthNotifier extends Notifier<AuthState> {
       state = state.copyWith(isLoading: false, errorMessage: 'Invalid email or password.');
       return false;
     } on AuthException catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.message);
+      state = state.copyWith(isLoading: false, errorMessage: _formatAuthError(e));
       return false;
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      state = state.copyWith(isLoading: false, errorMessage: _formatAuthError(e));
       return false;
     }
   }
@@ -214,12 +214,26 @@ class AuthNotifier extends Notifier<AuthState> {
       state = state.copyWith(isLoading: false, errorMessage: 'Sign up failed. Please try again.');
       return false;
     } on AuthException catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.message);
+      state = state.copyWith(isLoading: false, errorMessage: _formatAuthError(e));
       return false;
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      state = state.copyWith(isLoading: false, errorMessage: _formatAuthError(e));
       return false;
     }
+  }
+
+  String _formatAuthError(dynamic e) {
+    final str = e.toString();
+    if (str.contains('Error sending confirmation email') || str.contains('unexpected_failure')) {
+      return 'Supabase cannot send confirmation emails (rate limit or unconfigured SMTP).\nFix: In Supabase Dashboard ➔ Authentication ➔ Providers ➔ Email ➔ Turn OFF "Confirm email".';
+    }
+    if (str.contains('Invalid login credentials') || str.contains('invalid_credentials')) {
+      return 'Invalid email or password. Please check your credentials and try again.';
+    }
+    if (str.contains('User already registered') || str.contains('user_already_exists')) {
+      return 'An account with this email address already exists. Please Sign In.';
+    }
+    return e is AuthException ? e.message : str;
   }
 
   Future<bool> sendPasswordResetEmail(String email) async {

@@ -154,10 +154,56 @@ class SellerRepository {
 
     try {
       final data = shop.toJson();
-      final res = await client.from('shops').upsert(data).select().single();
-      final updated = ShopModel.fromJson(res);
-      _mockShop = updated;
-      return updated;
+      // If the ID is a placeholder prefix (non-UUID), remove it so PostgreSQL generates a valid UUID
+      if (shop.id.startsWith('shop-') || shop.id.isEmpty) {
+        data.remove('id');
+      }
+      try {
+        final res = await client.from('shops').upsert(data).select().single();
+        final updated = ShopModel.fromJson(res);
+        _mockShop = updated;
+        return updated;
+      } catch (colErr) {
+        debugPrint('[SellerRepository] Full schema upsert failed, falling back to guaranteed base schema: $colErr');
+        // Encode extra fields into description if column does not exist
+        final extraKyc = <String, dynamic>{
+          if (shop.ownerName != null) 'owner_name': shop.ownerName,
+          if (shop.gstin != null) 'gstin': shop.gstin,
+          if (shop.panNumber != null) 'pan_number': shop.panNumber,
+          if (shop.contactPhone != null) 'contact_phone': shop.contactPhone,
+          if (shop.contactEmail != null) 'contact_email': shop.contactEmail,
+          if (shop.bankAccountNumber != null) 'bank_account_number': shop.bankAccountNumber,
+          if (shop.bankIfsc != null) 'bank_ifsc': shop.bankIfsc,
+          if (shop.bankName != null) 'bank_name': shop.bankName,
+          if (shop.tradeLicenseNumber != null) 'trade_license_number': shop.tradeLicenseNumber,
+          if (shop.aadhaarNumber != null) 'aadhaar_number': shop.aadhaarNumber,
+          if (shop.kycDocuments.isNotEmpty) 'kyc_documents': shop.kycDocuments,
+        };
+
+        String desc = shop.description ?? '';
+        if (extraKyc.isNotEmpty) {
+          desc = desc.isNotEmpty ? '$desc\n[KYC_META]:${extraKyc.toString()}' : '[KYC_META]:${extraKyc.toString()}';
+        }
+
+        final baseData = <String, dynamic>{
+          'seller_id': shop.sellerId,
+          'name': shop.name,
+          'description': desc,
+          'address': shop.address,
+          'location': 'POINT(${shop.longitude} ${shop.latitude})',
+          'status': shop.status,
+          'kyc_status': shop.kycStatus,
+          'commission_rate': shop.commissionRate,
+        };
+        if (shop.logoUrl != null) baseData['logo_url'] = shop.logoUrl;
+        if (shop.bannerUrl != null) baseData['banner_url'] = shop.bannerUrl;
+        if (!shop.id.startsWith('shop-') && shop.id.isNotEmpty) baseData['id'] = shop.id;
+
+        final res = await client.from('shops').upsert(baseData).select().single();
+        final updated = ShopModel.fromJson(res);
+        _mockShop = updated;
+        return updated;
+      }
     } catch (e) {
       debugPrint('[SellerRepository] Error saving shop: $e');
       _mockShop = shop;

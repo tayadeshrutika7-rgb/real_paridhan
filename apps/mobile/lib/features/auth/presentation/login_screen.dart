@@ -185,6 +185,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             value: UserRole.delivery,
                             child: Text('Delivery Partner (Local Fleet)'),
                           ),
+                          DropdownMenuItem(
+                            value: UserRole.admin,
+                            child: Text('Platform Administrator (City Ops / Admin)'),
+                          ),
                         ],
                         onChanged: (val) {
                           if (val != null) setState(() => _selectedRole = val);

@@ -117,11 +117,24 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
   /// KYC Actions
   Future<bool> approveBoutique(
     String boutiqueId, {
+    String? shopName,
     String? notes,
     String adminName = 'Super Admin',
   }) async {
+    // Immediate optimistic state update
+    final currentPending = List<BoutiqueVerificationItem>.from(state.metrics.pendingBoutiques);
+    currentPending.removeWhere((b) => b.id == boutiqueId || (shopName != null && b.shopName == shopName) || b.shopName == boutiqueId);
+    state = state.copyWith(
+      metrics: state.metrics.copyWith(
+        pendingBoutiques: currentPending,
+        pendingKycCount: (state.metrics.pendingKycCount - 1).clamp(0, 9999),
+        activeBoutiquesCount: state.metrics.activeBoutiquesCount + 1,
+      ),
+    );
+
     final success = await _repository.updateBoutiqueKycStatus(
       boutiqueId: boutiqueId,
+      shopName: shopName,
       status: KycStatus.approved,
       verificationNotes: notes,
       adminName: adminName,
@@ -155,11 +168,24 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
 
   Future<bool> rejectBoutique(
     String boutiqueId, {
+    String? shopName,
     required String reason,
     String adminName = 'Super Admin',
   }) async {
+    // Immediate optimistic state update
+    final currentPending = List<BoutiqueVerificationItem>.from(state.metrics.pendingBoutiques);
+    currentPending.removeWhere((b) => b.id == boutiqueId || (shopName != null && b.shopName == shopName) || b.shopName == boutiqueId);
+    state = state.copyWith(
+      metrics: state.metrics.copyWith(
+        pendingBoutiques: currentPending,
+        pendingKycCount: (state.metrics.pendingKycCount - 1).clamp(0, 9999),
+        suspendedSellersCount: state.metrics.suspendedSellersCount + 1,
+      ),
+    );
+
     final success = await _repository.updateBoutiqueKycStatus(
       boutiqueId: boutiqueId,
+      shopName: shopName,
       status: KycStatus.rejected,
       reason: reason,
       adminName: adminName,
@@ -192,11 +218,22 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
 
   Future<bool> requestKycCorrection(
     String boutiqueId, {
+    String? shopName,
     required String notes,
     String adminName = 'Super Admin',
   }) async {
+    final currentPending = List<BoutiqueVerificationItem>.from(state.metrics.pendingBoutiques);
+    currentPending.removeWhere((b) => b.id == boutiqueId || (shopName != null && b.shopName == shopName) || b.shopName == boutiqueId);
+    state = state.copyWith(
+      metrics: state.metrics.copyWith(
+        pendingBoutiques: currentPending,
+        pendingKycCount: (state.metrics.pendingKycCount - 1).clamp(0, 9999),
+      ),
+    );
+
     final success = await _repository.updateBoutiqueKycStatus(
       boutiqueId: boutiqueId,
+      shopName: shopName,
       status: KycStatus.correctionRequested,
       verificationNotes: notes,
       adminName: adminName,
@@ -232,6 +269,17 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
     String? notes,
     String adminName = 'Super Admin',
   }) async {
+    final currentFleet = List<AdminDeliveryPartnerItem>.from(state.metrics.deliveryPartners);
+    final driverIdx = currentFleet.indexWhere((d) => d.id == driverId);
+    if (driverIdx != -1) {
+      currentFleet[driverIdx] = currentFleet[driverIdx].copyWith(verificationStatus: 'verified');
+      state = state.copyWith(
+        metrics: state.metrics.copyWith(
+          deliveryPartners: currentFleet,
+        ),
+      );
+    }
+
     final success = await _repository.updateDeliveryPartnerKycStatus(
       driverId: driverId,
       verificationStatus: 'verified',

@@ -1,4 +1,5 @@
 enum KycStatus {
+  notStarted,
   pending,
   approved,
   rejected,
@@ -6,6 +7,8 @@ enum KycStatus {
 
   String get label {
     switch (this) {
+      case KycStatus.notStarted:
+        return 'Not Started';
       case KycStatus.pending:
         return 'Pending Verification';
       case KycStatus.approved:
@@ -23,13 +26,16 @@ enum KycStatus {
       case 'verified':
         return KycStatus.approved;
       case 'rejected':
+      case 'suspended':
         return KycStatus.rejected;
       case 'correction_requested':
       case 'correction':
         return KycStatus.correctionRequested;
       case 'pending':
-      default:
         return KycStatus.pending;
+      case 'not_started':
+      default:
+        return KycStatus.notStarted;
     }
   }
 }
@@ -172,7 +178,7 @@ class BoutiqueVerificationItem {
       submittedDocuments: (map['submitted_documents'] as List?)?.map((e) => e.toString()).toList() ?? [],
       kycNotes: map['kyc_notes'],
       rejectionReason: map['kyc_rejection_reason'],
-      status: KycStatus.fromString(map['kyc_status'] ?? (map['is_verified'] == true ? 'approved' : 'pending')),
+      status: KycStatus.fromString(map['kyc_status'] ?? (map['is_verified'] == true ? 'approved' : (map['status'] == 'pending' ? 'pending' : 'not_started'))),
       submittedAt: map['kyc_submitted_at'] != null
           ? DateTime.tryParse(map['kyc_submitted_at']) ?? DateTime.now()
           : (map['created_at'] != null ? DateTime.tryParse(map['created_at']) ?? DateTime.now() : DateTime.now()),
@@ -668,8 +674,12 @@ class AdminMetricsModel {
 
   // 2. Financial Breakdown
   double get grossSales => totalGmv;
-  double get sellerEarnings => (totalGmv - totalCommissionEarned).clamp(0.0, double.infinity);
-  double get netPlatformEarnings => (platformRevenue + totalAdRevenue + (totalDeliveryCharges * 0.2) - totalRefundsAmount - gatewayCharges);
+  double get sellerEarnings => (totalGmv - totalCommissionEarned - (totalRefundsAmount * 0.90)).clamp(0.0, double.infinity);
+  double get netPlatformEarnings {
+    final platformRefundLoss = totalRefundsAmount * (platformCommissionRate / 100);
+    final net = (platformRevenue + totalAdRevenue + (totalDeliveryCharges * 0.20)) - gatewayCharges - platformRefundLoss;
+    return net.clamp(0.0, double.infinity);
+  }
 
   // 3. Lists & Data Collections
   final List<BoutiqueVerificationItem> pendingBoutiques;

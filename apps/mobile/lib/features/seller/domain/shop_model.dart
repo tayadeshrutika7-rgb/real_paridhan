@@ -166,7 +166,7 @@ class ShopModel {
       'kyc_status': kycStatus,
       'kyc_rejection_reason': kycRejectionReason,
       'kyc_notes': kycNotes,
-      'kyc_verified_at': kycVerifiedAt?.toIso8601String(),
+      'is_verified': status == 'verified' || kycStatus == 'verified',
       'commission_rate': commissionRate,
     };
   }

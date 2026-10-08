@@ -5,6 +5,10 @@ import '../data/seller_repository.dart';
 import '../domain/shop_model.dart';
 import '../domain/product_model.dart';
 import '../domain/variant_model.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/notifications/domain/app_notification_model.dart';
+import '../../../core/notifications/presentation/role_notification_controller.dart';
+import '../../admin/presentation/admin_controller.dart';
 
 class SellerState {
   final bool isLoading;
@@ -143,6 +147,18 @@ class SellerController extends Notifier<SellerState> {
         shop: saved,
         successMessage: 'Shop profile saved successfully!',
       );
+
+      // Post notification to Admin role
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'New Boutique KYC Review: $name 🏪',
+        body: 'Boutique "$name" has submitted registration and KYC proof for Super Admin verification.',
+        category: NotificationCategory.kyc,
+        deepLink: '/admin',
+      );
+
+      // Invalidate Admin Provider so dashboard immediately shows pending shop
+      ref.invalidate(adminProvider);
+
       return true;
     } catch (e) {
       state = state.copyWith(
