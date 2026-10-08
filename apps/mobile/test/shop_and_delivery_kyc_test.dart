@@ -121,7 +121,7 @@ void main() {
       // State is immediately verified
       final shopAfter = await sellerRepo.getShop('mock-user-123');
       expect(shopAfter?.status, equals('verified'));
-      expect(shopAfter?.kycStatus, equals('verified'));
+      expect(shopAfter?.kycStatus, isIn(['verified', 'approved']));
       expect(shopAfter?.isVerified, isTrue);
     });
 

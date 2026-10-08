@@ -1161,11 +1161,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
             children: [
               Icon(Icons.assignment_outlined, color: Color(0xFFE11D48), size: 20),
               SizedBox(width: 8),
-<<<<<<< HEAD
-              Flexible(
-=======
               Expanded(
->>>>>>> 1265cd9 (fix(kyc): resolve root cause for shop creation and kyc verification visibility in admin)
                 child: Text(
                   'Operational Summary',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
@@ -1378,11 +1374,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                   children: [
                     Icon(Icons.emoji_events_outlined, color: Color(0xFFD97706), size: 20),
                     SizedBox(width: 8),
-<<<<<<< HEAD
-                    Flexible(
-=======
                     Expanded(
->>>>>>> 1265cd9 (fix(kyc): resolve root cause for shop creation and kyc verification visibility in admin)
                       child: Text(
                         'Top Performing Boutiques',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
