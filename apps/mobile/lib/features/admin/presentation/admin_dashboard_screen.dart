@@ -875,30 +875,36 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'Welcome Back, Admin',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.5,
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        'Welcome Back, Admin',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.5,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  SizedBox(width: 8),
-                  Text('👋', style: TextStyle(fontSize: 20)),
-                ],
-              ),
-              SizedBox(height: 4),
-              Text(
-                "Here's what's happening with your Paridhan platform today.",
-                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-              ),
-            ],
+                    SizedBox(width: 8),
+                    Text('👋', style: TextStyle(fontSize: 20)),
+                  ],
+                ),
+                SizedBox(height: 4),
+                Text(
+                  "Here's what's happening with your Paridhan platform today.",
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
           // Heritage City Skyline Silhouette Illustration
           CustomPaint(
@@ -1154,9 +1160,12 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
             children: [
               Icon(Icons.assignment_outlined, color: Color(0xFFE11D48), size: 20),
               SizedBox(width: 8),
-              Text(
-                'Operational Summary',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              Flexible(
+                child: Text(
+                  'Operational Summary',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
@@ -1357,15 +1366,20 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.emoji_events_outlined, color: Color(0xFFD97706), size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'Top Performing Boutiques',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                  ),
-                ],
+              const Expanded(
+                child: Row(
+                  children: [
+                    Icon(Icons.emoji_events_outlined, color: Color(0xFFD97706), size: 20),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Top Performing Boutiques',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               InkWell(
                 onTap: () => _switchTab(3),

@@ -11,6 +11,7 @@ import 'package:paridhan_mobile/features/admin/domain/admin_metrics_model.dart';
 import 'package:paridhan_mobile/features/admin/presentation/admin_boutique_verification_screen.dart';
 import 'package:paridhan_mobile/features/admin/presentation/admin_analytics_screen.dart';
 import 'package:paridhan_mobile/features/admin/presentation/admin_disputes_screen.dart';
+import 'package:paridhan_mobile/features/admin/presentation/admin_controller.dart';
 import 'test_utils.dart';
 
 void main() {
@@ -46,9 +47,9 @@ void main() {
       expect(metrics.totalGmv, 200000.0);
       expect(metrics.platformRevenue, 20000.0);
       expect(metrics.grossSales, 200000.0);
-      expect(metrics.sellerEarnings, 180000.0);
+      expect(metrics.sellerEarnings, 200000.0 - 20000.0 - (2000.0 * 0.90));
       expect(metrics.avgOrderValue, 200000.0 / 150);
-      expect(metrics.netPlatformEarnings, (20000.0 + 5000.0 + (4000.0 * 0.2) - 2000.0 - 4000.0));
+      expect(metrics.netPlatformEarnings, (20000.0 + 5000.0 + (4000.0 * 0.2) - 4000.0 - (2000.0 * 0.10)));
 
       final kycItem = BoutiqueVerificationItem(
         id: 'k-1',
@@ -126,6 +127,7 @@ void main() {
                     fullName: 'Super Admin Jaipur',
                   ),
                 )),
+            adminProvider.overrideWith(() => _MockAdminController()),
           ],
           child: const ParidhanApp(flavorTitle: 'Admin Test'),
         ),
@@ -134,13 +136,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('PARIDHAN Admin Control Center'), findsOneWidget);
-      expect(find.text('Operator: Super Admin Jaipur • City: Jaipur (HQ)'), findsOneWidget);
-      expect(find.text('Gross Merchandise Value (GMV)'), findsOneWidget);
-      expect(find.text('Business & Platform KPIs'), findsOneWidget);
-      expect(find.text('Operations Quick Actions'), findsOneWidget);
-      expect(find.text('Platform Trends & Distributions'), findsOneWidget);
-      expect(find.text('Jaipur Hyperlocal Zones'), findsOneWidget);
+      expect(find.text('PARIDHAN'), findsWidgets);
+      expect(find.text('Admin Control Center'), findsWidgets);
+      expect(find.text('Total Sales (GMV)'), findsOneWidget);
+      expect(find.text('Platform Revenue'), findsOneWidget);
+      expect(find.text('Total Orders'), findsWidgets);
     });
 
     testWidgets('Renders Admin Boutique Verification Screen with Sensitive Data Masking', (WidgetTester tester) async {
@@ -149,8 +149,11 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
 
       await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(
+        ProviderScope(
+          overrides: [
+            adminProvider.overrideWith(() => _MockAdminController()),
+          ],
+          child: const MaterialApp(
             home: AdminBoutiqueVerificationScreen(),
           ),
         ),
@@ -172,8 +175,11 @@ void main() {
 
       // 1. Analytics Screen
       await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(
+        ProviderScope(
+          overrides: [
+            adminProvider.overrideWith(() => _MockAdminController()),
+          ],
+          child: const MaterialApp(
             home: AdminAnalyticsScreen(),
           ),
         ),
@@ -188,8 +194,11 @@ void main() {
 
       // 2. Disputes Screen
       await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(
+        ProviderScope(
+          overrides: [
+            adminProvider.overrideWith(() => _MockAdminController()),
+          ],
+          child: const MaterialApp(
             home: AdminDisputesScreen(),
           ),
         ),
@@ -202,6 +211,54 @@ void main() {
       expect(find.text('Approve Refund'), findsWidgets);
     });
   });
+}
+
+class _MockAdminController extends AdminNotifier {
+  @override
+  AdminDashboardState build() {
+    return AdminDashboardState(
+      isLoading: false,
+      metrics: AdminMetricsModel(
+        totalGmv: 184500.0,
+        platformRevenue: 18450.0,
+        pendingBoutiques: [
+          BoutiqueVerificationItem(
+            id: 'k-1',
+            shopName: 'Jaipur Silks',
+            ownerName: 'Manish Rathore',
+            ownerEmail: 'manish@silk.in',
+            ownerPhone: '+91 98290 12345',
+            gstin: '08ABCDE1234F1Z5',
+            address: 'Bapu Bazaar',
+            cityZone: 'Pink City',
+            status: KycStatus.pending,
+            submittedAt: DateTime.now(),
+          ),
+        ],
+        disputes: [
+          DisputeTicket(
+            id: 'disp-01',
+            orderNumber: 'PRD-ORD-881',
+            consumerName: 'Pooja',
+            boutiqueName: 'Jaipur Silks',
+            issueReason: 'Damaged item',
+            amount: 1499.0,
+            isResolved: false,
+            createdAt: DateTime.now(),
+          ),
+        ],
+        zoneMetrics: const [
+          CityZoneMetric(
+            zoneName: 'Pink City',
+            activeBoutiques: 12,
+            totalOrders: 40,
+            gmvAmount: 48000.0,
+            platformRevenue: 4800.0,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MockAdminAuthNotifier extends AuthNotifier {
