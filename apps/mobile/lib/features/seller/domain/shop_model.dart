@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class ShopModel {
   final String id;
   final String sellerId;
@@ -89,29 +91,48 @@ class ShopModel {
       }
     }
 
+    String? desc = json['description'] as String?;
+    Map<String, dynamic> kycMeta = {};
+    if (desc != null && desc.contains('[KYC_META]:')) {
+      final parts = desc.split('[KYC_META]:');
+      desc = parts[0].trim();
+      if (parts.length > 1) {
+        try {
+          final metaStr = parts[1].trim();
+          kycMeta = Map<String, dynamic>.from(
+            jsonDecode(metaStr) as Map,
+          );
+        } catch (_) {}
+      }
+    }
+
+    final kycDocs = (json['kyc_documents'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+        (kycMeta['kyc_documents'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+        [];
+
     return ShopModel(
       id: json['id'] as String,
       sellerId: json['seller_id'] as String? ?? json['sellerId'] as String? ?? '',
       name: json['name'] as String? ?? 'Unnamed Shop',
-      ownerName: json['owner_name'] as String? ?? json['ownerName'] as String?,
-      description: json['description'] as String?,
+      ownerName: json['owner_name'] as String? ?? json['ownerName'] as String? ?? kycMeta['owner_name'] as String?,
+      description: desc?.isNotEmpty == true ? desc : null,
       logoUrl: json['logo_url'] as String? ?? json['logoUrl'] as String?,
       bannerUrl: json['banner_url'] as String? ?? json['bannerUrl'] as String?,
       address: json['address'] as String? ?? '',
-      contactPhone: json['contact_phone'] as String? ?? json['contactPhone'] as String?,
-      contactEmail: json['contact_email'] as String? ?? json['contactEmail'] as String?,
-      bankAccountNumber: json['bank_account_number'] as String? ?? json['bankAccountNumber'] as String?,
-      bankIfsc: json['bank_ifsc'] as String? ?? json['bankIfsc'] as String?,
-      bankName: json['bank_name'] as String? ?? json['bankName'] as String?,
-      bankAccountName: json['bank_account_name'] as String? ?? json['bankAccountName'] as String?,
-      gstin: json['gstin'] as String?,
-      panNumber: json['pan_number'] as String? ?? json['panNumber'] as String?,
-      businessType: json['business_type'] as String? ?? json['businessType'] as String? ?? 'sole_proprietorship',
-      tradeLicenseNumber: json['trade_license_number'] as String? ?? json['tradeLicenseNumber'] as String?,
-      aadhaarNumber: json['aadhaar_number'] as String? ?? json['aadhaarNumber'] as String?,
-      pincode: json['pincode'] as String?,
-      landmark: json['landmark'] as String?,
-      kycDocuments: (json['kyc_documents'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      contactPhone: json['contact_phone'] as String? ?? json['contactPhone'] as String? ?? kycMeta['contact_phone'] as String?,
+      contactEmail: json['contact_email'] as String? ?? json['contactEmail'] as String? ?? kycMeta['contact_email'] as String?,
+      bankAccountNumber: json['bank_account_number'] as String? ?? json['bankAccountNumber'] as String? ?? kycMeta['bank_account_number'] as String?,
+      bankIfsc: json['bank_ifsc'] as String? ?? json['bankIfsc'] as String? ?? kycMeta['bank_ifsc'] as String?,
+      bankName: json['bank_name'] as String? ?? json['bankName'] as String? ?? kycMeta['bank_name'] as String?,
+      bankAccountName: json['bank_account_name'] as String? ?? json['bankAccountName'] as String? ?? kycMeta['bank_account_name'] as String?,
+      gstin: json['gstin'] as String? ?? kycMeta['gstin'] as String?,
+      panNumber: json['pan_number'] as String? ?? json['panNumber'] as String? ?? kycMeta['pan_number'] as String?,
+      businessType: json['business_type'] as String? ?? json['businessType'] as String? ?? kycMeta['business_type'] as String? ?? 'sole_proprietorship',
+      tradeLicenseNumber: json['trade_license_number'] as String? ?? json['tradeLicenseNumber'] as String? ?? kycMeta['trade_license_number'] as String?,
+      aadhaarNumber: json['aadhaar_number'] as String? ?? json['aadhaarNumber'] as String? ?? kycMeta['aadhaar_number'] as String?,
+      pincode: json['pincode'] as String? ?? kycMeta['pincode'] as String?,
+      landmark: json['landmark'] as String? ?? kycMeta['landmark'] as String?,
+      kycDocuments: kycDocs,
       latitude: lat,
       longitude: lng,
       status: json['status'] as String? ?? 'pending',
@@ -121,7 +142,7 @@ class ShopModel {
           [],
       avgRating: (json['avg_rating'] as num?)?.toDouble() ?? 0.0,
       razorpayLinkedAccountId: json['razorpay_linked_account_id'] as String?,
-      kycStatus: json['kyc_status'] as String? ?? 'not_started',
+      kycStatus: json['kyc_status'] as String? ?? (json['status'] == 'verified' || json['is_verified'] == true ? 'verified' : 'pending'),
       kycRejectionReason: json['kyc_rejection_reason'] as String?,
       kycNotes: json['kyc_notes'] as String?,
       kycVerifiedAt: json['kyc_verified_at'] != null

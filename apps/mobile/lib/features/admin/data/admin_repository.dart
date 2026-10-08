@@ -8,7 +8,11 @@ class AdminRepository {
   final SupabaseClient? _client;
 
   AdminRepository([SupabaseClient? client])
-      : _client = client ?? (SupabaseService.isInitialized ? SupabaseService.client : null);
+      : _client = client ?? (SupabaseService.isInitialized ? SupabaseService.client : null) {
+    if (_simulatedBoutiques.isEmpty) {
+      _initSimulatedBoutiques();
+    }
+  }
 
   // Persistent status tracking across browser reloads & sessions
   static final Set<String> _locallyApprovedShopIds = {};
@@ -20,6 +24,14 @@ class AdminRepository {
   static const _kRejectedShopsKey = 'paridhan_rejected_shop_ids';
   static const _kApprovedDriversKey = 'paridhan_approved_driver_ids';
   static const _kRejectedDriversKey = 'paridhan_rejected_driver_ids';
+
+  static void resetLocallyCachedStatus() {
+    _locallyApprovedShopIds.clear();
+    _locallyRejectedShopIds.clear();
+    _locallyApprovedDriverIds.clear();
+    _locallyRejectedDriverIds.clear();
+    _initSimulatedBoutiques();
+  }
 
   static Future<void> _loadPersistedStatus() async {
     try {
@@ -47,76 +59,81 @@ class AdminRepository {
   }
 
   // In-memory simulation cache for robust offline and test execution
-  static final List<BoutiqueVerificationItem> _simulatedBoutiques = [
-    BoutiqueVerificationItem(
-      id: 'shop-kyc-01',
-      shopName: 'Sanganeri Block Studio',
-      ownerName: 'Sunita Meena',
-      ownerEmail: 'sunita@sanganeriblocks.in',
-      ownerPhone: '+91 98290 55443',
-      gstin: '08ABCDE1234F1Z5',
-      address: 'Plot 48, Industrial Area, Sanganer, Jaipur',
-      cityZone: 'Sanganer Print Hub',
-      bannerUrl: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600',
-      bankAccountNumber: '50100456789012',
-      bankIfsc: 'HDFC0001234',
-      bankName: 'HDFC Bank, Sanganer Branch',
-      panNumber: 'ABCDE1234F',
-      aadhaarNumber: '987654321098',
-      businessRegNumber: 'RJ-JP-2024-8842',
-      submittedDocuments: [
-        'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
-        'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600',
-      ],
-      status: KycStatus.pending,
-      submittedAt: DateTime.now().subtract(const Duration(hours: 4)),
-    ),
-    BoutiqueVerificationItem(
-      id: 'shop-kyc-02',
-      shopName: 'Royal Rajputana Silks',
-      ownerName: 'Manish Singh Rathore',
-      ownerEmail: 'manish@royalrajputana.com',
-      ownerPhone: '+91 98290 88776',
-      gstin: '08XYZAB5678C1Z2',
-      address: '15, Bapu Bazaar, Near Sanganeri Gate, Jaipur',
-      cityZone: 'Pink City / Bapu Bazaar',
-      bannerUrl: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
-      bankAccountNumber: '91882908877634',
-      bankIfsc: 'SBIN0000456',
-      bankName: 'State Bank of India, Bapu Bazaar',
-      panNumber: 'XYZAB5678C',
-      aadhaarNumber: '876543210987',
-      businessRegNumber: 'RJ-JP-2023-1120',
-      submittedDocuments: [
-        'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
-      ],
-      status: KycStatus.pending,
-      submittedAt: DateTime.now().subtract(const Duration(hours: 9)),
-    ),
-    BoutiqueVerificationItem(
-      id: 'shop-kyc-03',
-      shopName: 'Jaipur Heritage Handlooms',
-      ownerName: 'Vikram Joshi',
-      ownerEmail: 'seller@paridhan.local',
-      ownerPhone: '+91 98290 11223',
-      gstin: '08AABCT3524Q1Z8',
-      address: 'Shop 42, Johari Bazaar, Pink City, Jaipur',
-      cityZone: 'Pink City / Johari Bazaar',
-      bannerUrl: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
-      bankAccountNumber: '00123456789011',
-      bankIfsc: 'ICIC0000123',
-      bankName: 'ICICI Bank, Johari Bazaar',
-      panNumber: 'AABCT3524Q',
-      aadhaarNumber: '765432109876',
-      businessRegNumber: 'RJ-JP-2022-9901',
-      submittedDocuments: [
-        'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
-      ],
-      status: KycStatus.approved,
-      submittedAt: DateTime.now().subtract(const Duration(days: 12)),
-      verifiedAt: DateTime.now().subtract(const Duration(days: 11)),
-    ),
-  ];
+  static final List<BoutiqueVerificationItem> _simulatedBoutiques = [];
+
+  static void _initSimulatedBoutiques() {
+    _simulatedBoutiques.clear();
+    _simulatedBoutiques.addAll([
+      BoutiqueVerificationItem(
+        id: 'shop-kyc-01',
+        shopName: 'Sanganeri Block Studio',
+        ownerName: 'Sunita Meena',
+        ownerEmail: 'sunita@sanganeriblocks.in',
+        ownerPhone: '+91 98290 55443',
+        gstin: '08ABCDE1234F1Z5',
+        address: 'Plot 48, Industrial Area, Sanganer, Jaipur',
+        cityZone: 'Sanganer Print Hub',
+        bannerUrl: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600',
+        bankAccountNumber: '50100456789012',
+        bankIfsc: 'HDFC0001234',
+        bankName: 'HDFC Bank, Sanganer Branch',
+        panNumber: 'ABCDE1234F',
+        aadhaarNumber: '987654321098',
+        businessRegNumber: 'RJ-JP-2024-8842',
+        submittedDocuments: const [
+          'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
+          'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600',
+        ],
+        status: KycStatus.pending,
+        submittedAt: DateTime.now().subtract(const Duration(hours: 4)),
+      ),
+      BoutiqueVerificationItem(
+        id: 'shop-kyc-02',
+        shopName: 'Royal Rajputana Silks',
+        ownerName: 'Manish Singh Rathore',
+        ownerEmail: 'manish@royalrajputana.com',
+        ownerPhone: '+91 98290 88776',
+        gstin: '08XYZAB5678C1Z2',
+        address: '15, Bapu Bazaar, Near Sanganeri Gate, Jaipur',
+        cityZone: 'Pink City / Bapu Bazaar',
+        bannerUrl: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
+        bankAccountNumber: '91882908877634',
+        bankIfsc: 'SBIN0000456',
+        bankName: 'State Bank of India, Bapu Bazaar',
+        panNumber: 'XYZAB5678C',
+        aadhaarNumber: '876543210987',
+        businessRegNumber: 'RJ-JP-2023-1120',
+        submittedDocuments: const [
+          'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
+        ],
+        status: KycStatus.pending,
+        submittedAt: DateTime.now().subtract(const Duration(hours: 9)),
+      ),
+      BoutiqueVerificationItem(
+        id: 'shop-kyc-03',
+        shopName: 'Jaipur Heritage Handlooms',
+        ownerName: 'Vikram Joshi',
+        ownerEmail: 'seller@paridhan.local',
+        ownerPhone: '+91 98290 11223',
+        gstin: '08AABCT3524Q1Z8',
+        address: 'Shop 42, Johari Bazaar, Pink City, Jaipur',
+        cityZone: 'Pink City / Johari Bazaar',
+        bannerUrl: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
+        bankAccountNumber: '00123456789011',
+        bankIfsc: 'ICIC0000123',
+        bankName: 'ICICI Bank, Johari Bazaar',
+        panNumber: 'AABCT3524Q',
+        aadhaarNumber: '765432109876',
+        businessRegNumber: 'RJ-JP-2022-9901',
+        submittedDocuments: const [
+          'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600',
+        ],
+        status: KycStatus.approved,
+        submittedAt: DateTime.now().subtract(const Duration(days: 12)),
+        verifiedAt: DateTime.now().subtract(const Duration(days: 11)),
+      ),
+    ]);
+  }
 
   static final List<AdminCustomerItem> _simulatedCustomers = [
     AdminCustomerItem(
@@ -748,11 +765,11 @@ class AdminRepository {
 
     await _persistStatus();
 
-    // Always synchronize active Seller mock repository state
     final isApproved = status == KycStatus.approved;
     final isRejected = status == KycStatus.rejected;
+    final isCorrection = status == KycStatus.correctionRequested;
     final dbShopStatus = isApproved ? 'verified' : (isRejected ? 'rejected' : 'pending');
-    final dbKycStatus = isApproved ? 'verified' : (isRejected ? 'rejected' : 'pending');
+    final dbKycStatus = isApproved ? 'approved' : (isRejected ? 'rejected' : (isCorrection ? 'correction_requested' : 'pending'));
 
     SellerRepository.updateMockShopStatus(
       status: dbShopStatus,

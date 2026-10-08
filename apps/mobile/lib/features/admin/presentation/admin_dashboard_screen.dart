@@ -906,9 +906,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
               ],
             ),
           ),
+          const SizedBox(width: 12),
           // Heritage City Skyline Silhouette Illustration
           CustomPaint(
-            size: const Size(200, 50),
+            size: const Size(180, 50),
             painter: _JaipurSkylinePainter(),
           ),
         ],
@@ -1160,7 +1161,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
             children: [
               Icon(Icons.assignment_outlined, color: Color(0xFFE11D48), size: 20),
               SizedBox(width: 8),
+<<<<<<< HEAD
               Flexible(
+=======
+              Expanded(
+>>>>>>> 1265cd9 (fix(kyc): resolve root cause for shop creation and kyc verification visibility in admin)
                 child: Text(
                   'Operational Summary',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
@@ -1200,15 +1205,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
               child: Text(
                 title,
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
+            const SizedBox(width: 4),
             Text(
               value,
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(4)),
               child: Text(
                 trend,
@@ -1371,7 +1378,11 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                   children: [
                     Icon(Icons.emoji_events_outlined, color: Color(0xFFD97706), size: 20),
                     SizedBox(width: 8),
+<<<<<<< HEAD
                     Flexible(
+=======
+                    Expanded(
+>>>>>>> 1265cd9 (fix(kyc): resolve root cause for shop creation and kyc verification visibility in admin)
                       child: Text(
                         'Top Performing Boutiques',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),

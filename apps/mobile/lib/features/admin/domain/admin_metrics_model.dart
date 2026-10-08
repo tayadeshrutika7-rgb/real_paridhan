@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 enum KycStatus {
   notStarted,
   pending,
@@ -158,27 +160,50 @@ class BoutiqueVerificationItem {
   }
 
   factory BoutiqueVerificationItem.fromMap(Map<String, dynamic> map) {
+    Map<String, dynamic> kycMeta = {};
+    final rawDesc = map['description']?.toString();
+    if (rawDesc != null && rawDesc.contains('[KYC_META]:')) {
+      final parts = rawDesc.split('[KYC_META]:');
+      if (parts.length > 1) {
+        try {
+          kycMeta = Map<String, dynamic>.from(jsonDecode(parts[1].trim()) as Map);
+        } catch (_) {}
+      }
+    }
+
+    final kycDocs = (map['submitted_documents'] as List?)?.map((e) => e.toString()).toList() ??
+        (map['kyc_documents'] as List?)?.map((e) => e.toString()).toList() ??
+        (kycMeta['kyc_documents'] as List?)?.map((e) => e.toString()).toList() ??
+        [];
+
+    final kycStatusStr = map['kyc_status'] ??
+        (map['is_verified'] == true
+            ? 'approved'
+            : (map['status'] == 'verified'
+                ? 'approved'
+                : (map['status'] == 'pending' ? 'pending' : 'not_started')));
+
     return BoutiqueVerificationItem(
       id: map['id']?.toString() ?? '',
       shopName: map['name'] ?? map['shop_name'] ?? 'Boutique Store',
-      ownerName: map['owner_name'] ?? map['full_name'] ?? 'Boutique Owner',
-      ownerEmail: map['owner_email'] ?? map['email'] ?? 'seller@paridhan.local',
-      ownerPhone: map['phone'] ?? map['contact_phone'] ?? '+91 98290 00000',
-      gstin: map['gstin'] ?? '08AAAAA0000A1Z5',
+      ownerName: map['owner_name'] ?? map['full_name'] ?? kycMeta['owner_name'] ?? 'Boutique Owner',
+      ownerEmail: map['owner_email'] ?? map['email'] ?? map['contact_email'] ?? kycMeta['contact_email'] ?? 'seller@paridhan.local',
+      ownerPhone: map['phone'] ?? map['contact_phone'] ?? kycMeta['contact_phone'] ?? '+91 98290 00000',
+      gstin: map['gstin'] ?? kycMeta['gstin'] ?? '08AAAAA0000A1Z5',
       address: map['address'] ?? map['address_line1'] ?? 'Jaipur, Rajasthan',
-      cityZone: map['city_zone'] ?? 'Pink City / Johari Bazaar',
+      cityZone: map['city_zone'] ?? kycMeta['landmark'] ?? 'Pink City / Johari Bazaar',
       bannerUrl: map['banner_url'] ?? map['banner_image_url'] ?? map['logo_url'],
-      licenseDocumentUrl: map['license_document_url'] ?? map['license_url'],
-      bankAccountNumber: map['bank_account_number'] ?? '987654321012',
-      bankIfsc: map['bank_ifsc'] ?? 'HDFC0001234',
-      bankName: map['bank_name'] ?? 'HDFC Bank, Johari Bazaar',
-      panNumber: map['pan_number'] ?? 'ABCDE1234F',
-      aadhaarNumber: map['aadhaar_number'] ?? '987654321098',
-      businessRegNumber: map['business_reg_number'] ?? 'RJ-JP-2024-8842',
-      submittedDocuments: (map['submitted_documents'] as List?)?.map((e) => e.toString()).toList() ?? [],
-      kycNotes: map['kyc_notes'],
+      licenseDocumentUrl: map['license_document_url'] ?? map['license_url'] ?? (kycDocs.isNotEmpty ? kycDocs.first : null),
+      bankAccountNumber: map['bank_account_number'] ?? kycMeta['bank_account_number'] ?? '987654321012',
+      bankIfsc: map['bank_ifsc'] ?? kycMeta['bank_ifsc'] ?? 'HDFC0001234',
+      bankName: map['bank_name'] ?? kycMeta['bank_name'] ?? 'HDFC Bank, Johari Bazaar',
+      panNumber: map['pan_number'] ?? kycMeta['pan_number'] ?? 'ABCDE1234F',
+      aadhaarNumber: map['aadhaar_number'] ?? kycMeta['aadhaar_number'] ?? '987654321098',
+      businessRegNumber: map['business_reg_number'] ?? map['trade_license_number'] ?? kycMeta['trade_license_number'] ?? 'RJ-JP-2024-8842',
+      submittedDocuments: kycDocs,
+      kycNotes: map['kyc_notes'] ?? kycMeta['notes'],
       rejectionReason: map['kyc_rejection_reason'],
-      status: KycStatus.fromString(map['kyc_status'] ?? (map['is_verified'] == true ? 'approved' : (map['status'] == 'pending' ? 'pending' : 'not_started'))),
+      status: KycStatus.fromString(kycStatusStr),
       submittedAt: map['kyc_submitted_at'] != null
           ? DateTime.tryParse(map['kyc_submitted_at']) ?? DateTime.now()
           : (map['created_at'] != null ? DateTime.tryParse(map['created_at']) ?? DateTime.now() : DateTime.now()),

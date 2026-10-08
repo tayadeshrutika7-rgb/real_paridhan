@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:paridhan_mobile/main_consumer.dart';
@@ -8,6 +9,7 @@ import 'package:paridhan_mobile/features/auth/domain/user_profile.dart';
 import 'package:paridhan_mobile/features/auth/presentation/auth_state.dart';
 import 'package:paridhan_mobile/features/admin/data/admin_repository.dart';
 import 'package:paridhan_mobile/features/admin/domain/admin_metrics_model.dart';
+import 'package:paridhan_mobile/features/admin/presentation/admin_dashboard_screen.dart';
 import 'package:paridhan_mobile/features/admin/presentation/admin_boutique_verification_screen.dart';
 import 'package:paridhan_mobile/features/admin/presentation/admin_analytics_screen.dart';
 import 'package:paridhan_mobile/features/admin/presentation/admin_disputes_screen.dart';
@@ -16,7 +18,13 @@ import 'test_utils.dart';
 
 void main() {
   setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
     HttpOverrides.global = TestHttpOverrides();
+  });
+
+  setUp(() {
+    AdminRepository.resetLocallyCachedStatus();
   });
 
   group('Super Admin Control Center & Production Analytics Tests', () {
@@ -47,9 +55,9 @@ void main() {
       expect(metrics.totalGmv, 200000.0);
       expect(metrics.platformRevenue, 20000.0);
       expect(metrics.grossSales, 200000.0);
-      expect(metrics.sellerEarnings, 200000.0 - 20000.0 - (2000.0 * 0.90));
+      expect(metrics.sellerEarnings, 178200.0);
       expect(metrics.avgOrderValue, 200000.0 / 150);
-      expect(metrics.netPlatformEarnings, (20000.0 + 5000.0 + (4000.0 * 0.2) - 4000.0 - (2000.0 * 0.10)));
+      expect(metrics.netPlatformEarnings, (20000.0 + 5000.0 + (4000.0 * 0.2) - (2000.0 * 0.10) - 4000.0));
 
       final kycItem = BoutiqueVerificationItem(
         id: 'k-1',
@@ -117,6 +125,9 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
 
+      final repo = AdminRepository();
+      final metrics = await repo.getPlatformMetrics();
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -127,20 +138,23 @@ void main() {
                     fullName: 'Super Admin Jaipur',
                   ),
                 )),
-            adminProvider.overrideWith(() => _MockAdminController()),
+            adminProvider.overrideWith(() => _PreloadedAdminNotifier(metrics)),
           ],
-          child: const ParidhanApp(flavorTitle: 'Admin Test'),
+          child: const MaterialApp(home: AdminDashboardScreen()),
         ),
       );
 
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('PARIDHAN'), findsWidgets);
       expect(find.text('Admin Control Center'), findsWidgets);
+      expect(find.textContaining('Super Admin Jaipur'), findsOneWidget);
       expect(find.text('Total Sales (GMV)'), findsOneWidget);
       expect(find.text('Platform Revenue'), findsOneWidget);
+      expect(find.text('Commission (10%)'), findsOneWidget);
       expect(find.text('Total Orders'), findsWidgets);
+      expect(find.text('Operational Summary'), findsOneWidget);
     });
 
     testWidgets('Renders Admin Boutique Verification Screen with Sensitive Data Masking', (WidgetTester tester) async {
@@ -148,10 +162,13 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
 
+      final repo = AdminRepository();
+      final metrics = await repo.getPlatformMetrics();
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            adminProvider.overrideWith(() => _MockAdminController()),
+            adminProvider.overrideWith(() => _PreloadedAdminNotifier(metrics)),
           ],
           child: const MaterialApp(
             home: AdminBoutiqueVerificationScreen(),
@@ -160,7 +177,7 @@ void main() {
       );
 
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('Boutique KYC Verification'), findsOneWidget);
       expect(find.textContaining('Pending Review'), findsWidgets);
@@ -173,11 +190,14 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
 
+      final repo = AdminRepository();
+      final metrics = await repo.getPlatformMetrics();
+
       // 1. Analytics Screen
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            adminProvider.overrideWith(() => _MockAdminController()),
+            adminProvider.overrideWith(() => _PreloadedAdminNotifier(metrics)),
           ],
           child: const MaterialApp(
             home: AdminAnalyticsScreen(),
@@ -186,7 +206,7 @@ void main() {
       );
 
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('City & Financial Analytics (Jaipur)'), findsOneWidget);
       expect(find.text('Platform Financial Breakdown'), findsOneWidget);
@@ -196,7 +216,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            adminProvider.overrideWith(() => _MockAdminController()),
+            adminProvider.overrideWith(() => _PreloadedAdminNotifier(metrics)),
           ],
           child: const MaterialApp(
             home: AdminDisputesScreen(),
@@ -205,7 +225,7 @@ void main() {
       );
 
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('Disputes & Refund Escalations'), findsOneWidget);
       expect(find.text('Approve Refund'), findsWidgets);
@@ -213,51 +233,13 @@ void main() {
   });
 }
 
-class _MockAdminController extends AdminNotifier {
+class _PreloadedAdminNotifier extends AdminNotifier {
+  final AdminMetricsModel preloaded;
+  _PreloadedAdminNotifier(this.preloaded);
+
   @override
   AdminDashboardState build() {
-    return AdminDashboardState(
-      isLoading: false,
-      metrics: AdminMetricsModel(
-        totalGmv: 184500.0,
-        platformRevenue: 18450.0,
-        pendingBoutiques: [
-          BoutiqueVerificationItem(
-            id: 'k-1',
-            shopName: 'Jaipur Silks',
-            ownerName: 'Manish Rathore',
-            ownerEmail: 'manish@silk.in',
-            ownerPhone: '+91 98290 12345',
-            gstin: '08ABCDE1234F1Z5',
-            address: 'Bapu Bazaar',
-            cityZone: 'Pink City',
-            status: KycStatus.pending,
-            submittedAt: DateTime.now(),
-          ),
-        ],
-        disputes: [
-          DisputeTicket(
-            id: 'disp-01',
-            orderNumber: 'PRD-ORD-881',
-            consumerName: 'Pooja',
-            boutiqueName: 'Jaipur Silks',
-            issueReason: 'Damaged item',
-            amount: 1499.0,
-            isResolved: false,
-            createdAt: DateTime.now(),
-          ),
-        ],
-        zoneMetrics: const [
-          CityZoneMetric(
-            zoneName: 'Pink City',
-            activeBoutiques: 12,
-            totalOrders: 40,
-            gmvAmount: 48000.0,
-            platformRevenue: 4800.0,
-          ),
-        ],
-      ),
-    );
+    return AdminDashboardState(isLoading: false, metrics: preloaded);
   }
 }
 

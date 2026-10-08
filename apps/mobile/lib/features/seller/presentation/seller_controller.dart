@@ -6,6 +6,7 @@ import '../domain/shop_model.dart';
 import '../domain/product_model.dart';
 import '../domain/variant_model.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/network/supabase_client.dart';
 import '../../../core/notifications/domain/app_notification_model.dart';
 import '../../../core/notifications/presentation/role_notification_controller.dart';
 import '../../admin/presentation/admin_controller.dart';
@@ -50,7 +51,7 @@ class SellerController extends Notifier<SellerState> {
   @override
   SellerState build() {
     final authState = ref.watch(authProvider);
-    final sellerId = authState.user?.id ?? 'mock-user-123';
+    final sellerId = authState.user?.id ?? SupabaseService.client?.auth.currentUser?.id ?? '';
     
     // Defer async loading to microtask to prevent mutating state during build
     Future.microtask(() => _loadShopAndProducts(sellerId));
@@ -107,7 +108,15 @@ class SellerController extends Notifier<SellerState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final authState = ref.read(authProvider);
-      final sellerId = authState.user?.id ?? 'mock-user-123';
+      final sellerId = authState.user?.id ?? SupabaseService.client?.auth.currentUser?.id ?? '';
+
+      if (sellerId.isEmpty || sellerId.startsWith('mock')) {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: 'Please sign in with your seller account before submitting your boutique profile.',
+        );
+        return false;
+      }
 
       final existingShop = state.shop;
       final shopToSave = ShopModel(

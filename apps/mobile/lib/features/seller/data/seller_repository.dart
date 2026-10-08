@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../../core/network/supabase_client.dart';
 import '../../../core/utils/image_compressor.dart';
@@ -111,11 +112,23 @@ class SellerRepository {
       return _mockShop;
     }
 
+    String targetId = sellerId;
+    if (targetId.isEmpty || targetId.startsWith('mock')) {
+      final currentAuthId = client.auth.currentUser?.id;
+      if (currentAuthId != null && currentAuthId.isNotEmpty) {
+        targetId = currentAuthId;
+      }
+    }
+
+    if (targetId.isEmpty || targetId.startsWith('mock')) {
+      return null;
+    }
+
     try {
       final res = await client
           .from('shops')
           .select()
-          .eq('seller_id', sellerId)
+          .eq('seller_id', targetId)
           .maybeSingle();
 
       if (res != null) {
@@ -124,7 +137,7 @@ class SellerRepository {
       return null;
     } catch (e) {
       debugPrint('[SellerRepository] Error loading shop: $e');
-      return _mockShop;
+      return null;
     }
   }
 
@@ -152,62 +165,97 @@ class SellerRepository {
       return shop;
     }
 
+    // Resolve target seller ID
+    String targetSellerId = shop.sellerId;
+    if (targetSellerId.isEmpty || targetSellerId.startsWith('mock')) {
+      final currentAuthId = client.auth.currentUser?.id;
+      if (currentAuthId != null && currentAuthId.isNotEmpty) {
+        targetSellerId = currentAuthId;
+      }
+    }
+
+    if (targetSellerId.isEmpty || targetSellerId.startsWith('mock')) {
+      throw Exception('Must be signed in with a valid seller account to register a boutique shop.');
+    }
+
     try {
-      final data = shop.toJson();
-      // If the ID is a placeholder prefix (non-UUID), remove it so PostgreSQL generates a valid UUID
-      if (shop.id.startsWith('shop-') || shop.id.isEmpty) {
-        data.remove('id');
-      }
-      try {
-        final res = await client.from('shops').upsert(data).select().single();
-        final updated = ShopModel.fromJson(res);
-        _mockShop = updated;
-        return updated;
-      } catch (colErr) {
-        debugPrint('[SellerRepository] Full schema upsert failed, falling back to guaranteed base schema: $colErr');
-        // Encode extra fields into description if column does not exist
-        final extraKyc = <String, dynamic>{
-          if (shop.ownerName != null) 'owner_name': shop.ownerName,
-          if (shop.gstin != null) 'gstin': shop.gstin,
-          if (shop.panNumber != null) 'pan_number': shop.panNumber,
-          if (shop.contactPhone != null) 'contact_phone': shop.contactPhone,
-          if (shop.contactEmail != null) 'contact_email': shop.contactEmail,
-          if (shop.bankAccountNumber != null) 'bank_account_number': shop.bankAccountNumber,
-          if (shop.bankIfsc != null) 'bank_ifsc': shop.bankIfsc,
-          if (shop.bankName != null) 'bank_name': shop.bankName,
-          if (shop.tradeLicenseNumber != null) 'trade_license_number': shop.tradeLicenseNumber,
-          if (shop.aadhaarNumber != null) 'aadhaar_number': shop.aadhaarNumber,
-          if (shop.kycDocuments.isNotEmpty) 'kyc_documents': shop.kycDocuments,
-        };
-
-        String desc = shop.description ?? '';
-        if (extraKyc.isNotEmpty) {
-          desc = desc.isNotEmpty ? '$desc\n[KYC_META]:${extraKyc.toString()}' : '[KYC_META]:${extraKyc.toString()}';
+      // 1. Check if the seller already has an existing shop row in Supabase
+      String? existingShopId;
+      if (!shop.id.startsWith('shop-') && shop.id.isNotEmpty) {
+        existingShopId = shop.id;
+      } else {
+        final existing = await client
+            .from('shops')
+            .select('id')
+            .eq('seller_id', targetSellerId)
+            .maybeSingle();
+        if (existing != null && existing['id'] != null) {
+          existingShopId = existing['id'].toString();
         }
-
-        final baseData = <String, dynamic>{
-          'seller_id': shop.sellerId,
-          'name': shop.name,
-          'description': desc,
-          'address': shop.address,
-          'location': 'POINT(${shop.longitude} ${shop.latitude})',
-          'status': shop.status,
-          'kyc_status': shop.kycStatus,
-          'commission_rate': shop.commissionRate,
-        };
-        if (shop.logoUrl != null) baseData['logo_url'] = shop.logoUrl;
-        if (shop.bannerUrl != null) baseData['banner_url'] = shop.bannerUrl;
-        if (!shop.id.startsWith('shop-') && shop.id.isNotEmpty) baseData['id'] = shop.id;
-
-        final res = await client.from('shops').upsert(baseData).select().single();
-        final updated = ShopModel.fromJson(res);
-        _mockShop = updated;
-        return updated;
       }
+
+      // 2. Prepare structured KYC metadata
+      final extraKyc = <String, dynamic>{
+        if (shop.ownerName != null && shop.ownerName!.isNotEmpty) 'owner_name': shop.ownerName,
+        if (shop.gstin != null && shop.gstin!.isNotEmpty) 'gstin': shop.gstin,
+        if (shop.panNumber != null && shop.panNumber!.isNotEmpty) 'pan_number': shop.panNumber,
+        if (shop.contactPhone != null && shop.contactPhone!.isNotEmpty) 'contact_phone': shop.contactPhone,
+        if (shop.contactEmail != null && shop.contactEmail!.isNotEmpty) 'contact_email': shop.contactEmail,
+        if (shop.bankAccountNumber != null && shop.bankAccountNumber!.isNotEmpty) 'bank_account_number': shop.bankAccountNumber,
+        if (shop.bankIfsc != null && shop.bankIfsc!.isNotEmpty) 'bank_ifsc': shop.bankIfsc,
+        if (shop.bankName != null && shop.bankName!.isNotEmpty) 'bank_name': shop.bankName,
+        if (shop.bankAccountName != null && shop.bankAccountName!.isNotEmpty) 'bank_account_name': shop.bankAccountName,
+        if (shop.businessType != null && shop.businessType!.isNotEmpty) 'business_type': shop.businessType,
+        if (shop.tradeLicenseNumber != null && shop.tradeLicenseNumber!.isNotEmpty) 'trade_license_number': shop.tradeLicenseNumber,
+        if (shop.aadhaarNumber != null && shop.aadhaarNumber!.isNotEmpty) 'aadhaar_number': shop.aadhaarNumber,
+        if (shop.pincode != null && shop.pincode!.isNotEmpty) 'pincode': shop.pincode,
+        if (shop.landmark != null && shop.landmark!.isNotEmpty) 'landmark': shop.landmark,
+        if (shop.kycDocuments.isNotEmpty) 'kyc_documents': shop.kycDocuments,
+      };
+
+      // Clean base description (strip old KYC metadata string if present)
+      String cleanDesc = shop.description ?? '';
+      if (cleanDesc.contains('[KYC_META]:')) {
+        cleanDesc = cleanDesc.split('[KYC_META]:')[0].trim();
+      }
+      final String fullDesc = extraKyc.isNotEmpty
+          ? (cleanDesc.isNotEmpty ? '$cleanDesc\n[KYC_META]:${jsonEncode(extraKyc)}' : '[KYC_META]:${jsonEncode(extraKyc)}')
+          : cleanDesc;
+
+      // 3. Prepare payload with standard columns
+      final payload = <String, dynamic>{
+        'seller_id': targetSellerId,
+        'name': shop.name,
+        'description': fullDesc,
+        'address': shop.address,
+        'location': 'POINT(${shop.longitude} ${shop.latitude})',
+        'status': shop.status,
+        'kyc_status': shop.kycStatus.isNotEmpty ? shop.kycStatus : 'pending',
+        'commission_rate': shop.commissionRate,
+      };
+
+      if (shop.logoUrl != null && shop.logoUrl!.isNotEmpty) {
+        payload['logo_url'] = shop.logoUrl;
+      }
+      if (shop.bannerUrl != null && shop.bannerUrl!.isNotEmpty) {
+        payload['banner_url'] = shop.bannerUrl;
+      }
+
+      Map<String, dynamic> res;
+      if (existingShopId != null && existingShopId.isNotEmpty) {
+        payload['id'] = existingShopId;
+        payload['updated_at'] = DateTime.now().toIso8601String();
+        res = await client.from('shops').upsert(payload).select().single();
+      } else {
+        res = await client.from('shops').insert(payload).select().single();
+      }
+
+      final updated = ShopModel.fromJson(res);
+      _mockShop = updated;
+      return updated;
     } catch (e) {
-      debugPrint('[SellerRepository] Error saving shop: $e');
-      _mockShop = shop;
-      return shop;
+      debugPrint('[SellerRepository] Fatal error saving shop to Supabase: $e');
+      rethrow;
     }
   }
 
