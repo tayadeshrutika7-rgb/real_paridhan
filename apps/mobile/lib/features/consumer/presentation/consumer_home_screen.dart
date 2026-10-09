@@ -9,8 +9,10 @@ import '../../advertising/presentation/advertisement_controller.dart';
 import 'consumer_controller.dart';
 import 'cart_controller.dart';
 import 'wishlist_controller.dart';
+import 'bargain_controller.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/notifications/presentation/role_notification_badge.dart';
+import '../../../core/notifications/presentation/role_notification_controller.dart';
 
 class ConsumerHomeScreen extends ConsumerStatefulWidget {
   const ConsumerHomeScreen({super.key});
@@ -631,6 +633,41 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
                   ),
                 ),
             ],
+          ),
+
+          const SizedBox(width: 4),
+
+          // Live Sync / Refresh Button
+          IconButton(
+            icon: const Icon(Icons.sync_rounded, color: AppTheme.textPrimary, size: 22),
+            tooltip: 'Sync Live Deals & Notifications',
+            onPressed: () async {
+              final uid = ref.read(authProvider).user?.id;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Row(
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      ),
+                      SizedBox(width: 10),
+                      Text('Syncing live bargains, cart & notifications...'),
+                    ],
+                  ),
+                  duration: Duration(milliseconds: 900),
+                ),
+              );
+              if (uid != null && !uid.startsWith('guest')) {
+                await Future.wait<dynamic>([
+                  ref.read(roleNotificationProvider(UserRole.consumer).notifier).loadNotifications(userId: uid),
+                  ref.read(bargainProvider.notifier).loadConsumerBargains(uid),
+                  ref.read(cartProvider.notifier).loadCart(userId: uid),
+                  ref.read(wishlistProvider.notifier).loadWishlist(userId: uid),
+                ]);
+              }
+            },
           ),
 
           const SizedBox(width: 4),

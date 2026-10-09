@@ -2,9 +2,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/network/supabase_client.dart';
+import '../../../core/notifications/domain/app_notification_model.dart';
+import '../../../core/notifications/presentation/role_notification_controller.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../domain/bargain_model.dart';
+import 'cart_controller.dart';
 
 // ---------------------------------------------------------------------------
 // State
@@ -149,6 +153,16 @@ class BargainNotifier extends Notifier<BargainState> {
         consumerBargains: [newBargain, ...state.consumerBargains],
         successMessage: 'Your offer has been sent to the boutique!',
       );
+
+      // Post notification to Seller
+      ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+        title: '🛍️ New Bargain Offer: ₹${offerAmount.toStringAsFixed(0)}',
+        body: 'A customer offered ₹${offerAmount.toStringAsFixed(0)} for your garment. Tap to review and counter or accept!',
+        category: NotificationCategory.message,
+        deepLink: '/bargain/$mockId?seller=true',
+        payload: {'bargainId': mockId, 'offerAmount': offerAmount},
+      );
+
       return mockId;
     }
 
@@ -174,6 +188,15 @@ class BargainNotifier extends Notifier<BargainState> {
         'message_type': 'offer',
         'text': 'I would like to buy this for ₹${offerAmount.toStringAsFixed(0)}.',
       });
+
+      // Post notification to Seller
+      ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+        title: '🛍️ New Bargain Offer: ₹${offerAmount.toStringAsFixed(0)}',
+        body: 'A customer offered ₹${offerAmount.toStringAsFixed(0)} for your garment. Tap to review and counter or accept!',
+        category: NotificationCategory.message,
+        deepLink: '/bargain/$bargainId?seller=true',
+        payload: {'bargainId': bargainId, 'offerAmount': offerAmount},
+      );
 
       state = state.copyWith(
         isLoading: false,
@@ -334,21 +357,68 @@ class BargainNotifier extends Notifier<BargainState> {
           ),
           callback: (payload) {
             final updated = payload.newRecord;
+            final prevStatus = state.activeBargain?.status;
+            final newStatus = BargainStatus.values.firstWhere(
+              (e) => e.name == updated['status'],
+              orElse: () => state.activeBargain?.status ?? BargainStatus.open,
+            );
+            final agreedPrice = updated['agreed_price'] != null
+                ? (updated['agreed_price'] as num).toDouble()
+                : state.activeBargain?.agreedPrice;
+
             if (state.activeBargain != null) {
-              state = state.copyWith(
-                activeBargain: state.activeBargain!.copyWith(
-                  status: BargainStatus.values.firstWhere(
-                    (e) => e.name == updated['status'],
-                    orElse: () => state.activeBargain!.status,
-                  ),
-                  counterOffer: updated['counter_offer'] != null
-                      ? (updated['counter_offer'] as num).toDouble()
-                      : state.activeBargain!.counterOffer,
-                  agreedPrice: updated['agreed_price'] != null
-                      ? (updated['agreed_price'] as num).toDouble()
-                      : state.activeBargain!.agreedPrice,
-                ),
+              final updatedBargain = state.activeBargain!.copyWith(
+                status: newStatus,
+                counterOffer: updated['counter_offer'] != null
+                    ? (updated['counter_offer'] as num).toDouble()
+                    : state.activeBargain!.counterOffer,
+                agreedPrice: agreedPrice,
               );
+
+              state = state.copyWith(activeBargain: updatedBargain);
+
+              // If status just transitioned
+              if (prevStatus != newStatus) {
+                final price = agreedPrice ?? updatedBargain.consumerOffer;
+                final title = updatedBargain.productTitle ?? 'Handcrafted Garment';
+
+                if (newStatus == BargainStatus.accepted) {
+                  // Post in-app alert & notification to Consumer
+                  ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+                    title: '🎉 Seller Accepted Your Bargain (₹${price.toStringAsFixed(0)})!',
+                    body: 'Great news! The boutique accepted your lower bargain value of ₹${price.toStringAsFixed(0)} for "$title". You can now add this cloth to your shopping bag with the new bargained price!',
+                    category: NotificationCategory.offer,
+                    deepLink: '/cart',
+                    targetUserId: updatedBargain.consumerId,
+                    payload: {
+                      'bargainId': bargainId,
+                      'agreedPrice': price,
+                      'productTitle': title,
+                    },
+                  );
+
+                  // Auto-sync into cart state
+                  ref.read(cartProvider.notifier).addBargainDealToCart(updatedBargain);
+                } else if (newStatus == BargainStatus.countered && updatedBargain.counterOffer != null) {
+                  ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+                    title: '💬 New Counter-Offer: ₹${updatedBargain.counterOffer!.toStringAsFixed(0)}',
+                    body: 'The boutique sent a counter-offer of ₹${updatedBargain.counterOffer!.toStringAsFixed(0)} for "$title". Tap to review and accept!',
+                    category: NotificationCategory.offer,
+                    deepLink: '/bargain/$bargainId',
+                    targetUserId: updatedBargain.consumerId,
+                    payload: {'bargainId': bargainId, 'counterOffer': updatedBargain.counterOffer},
+                  );
+                } else if (newStatus == BargainStatus.rejected) {
+                  ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+                    title: '❌ Bargain Offer Declined',
+                    body: 'The boutique declined the bargain offer for "$title". You can view the chat to submit a new offer or purchase at listed price.',
+                    category: NotificationCategory.offer,
+                    deepLink: '/bargain/$bargainId',
+                    targetUserId: updatedBargain.consumerId,
+                    payload: {'bargainId': bargainId},
+                  );
+                }
+              }
             }
           },
         )
@@ -400,6 +470,16 @@ class BargainNotifier extends Notifier<BargainState> {
           messages: [...state.messages, counterMsg],
           successMessage: 'Counter offer sent to buyer.',
         );
+
+        // Notify consumer of counter-offer
+        ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+          title: '💬 Counter-Offer Received: ₹${counterAmount.toStringAsFixed(0)}',
+          body: 'The boutique sent a counter-offer of ₹${counterAmount.toStringAsFixed(0)} for "${updatedBargain.productTitle ?? 'your selected garment'}". Tap to review!',
+          category: NotificationCategory.offer,
+          deepLink: '/bargain/$bargainId',
+          targetUserId: updatedBargain.consumerId,
+          payload: {'bargainId': bargainId, 'counterOffer': counterAmount},
+        );
       }
       return;
     }
@@ -420,6 +500,18 @@ class BargainNotifier extends Notifier<BargainState> {
         'status': 'countered',
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', bargainId);
+
+      final active = state.activeBargain;
+
+      // Notify consumer of counter-offer
+      ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+        title: '💬 Counter-Offer Received: ₹${counterAmount.toStringAsFixed(0)}',
+        body: 'The boutique sent a counter-offer of ₹${counterAmount.toStringAsFixed(0)} for "${active?.productTitle ?? 'your selected garment'}". Tap to review!',
+        category: NotificationCategory.offer,
+        deepLink: '/bargain/$bargainId',
+        targetUserId: active?.consumerId,
+        payload: {'bargainId': bargainId, 'counterOffer': counterAmount},
+      );
 
       state = state.copyWith(
         isLoading: false,
@@ -464,8 +556,27 @@ class BargainNotifier extends Notifier<BargainState> {
           isLoading: false,
           activeBargain: updatedBargain,
           messages: [...state.messages, acceptMsg],
-          successMessage: 'Deal accepted! Added to your cart.',
+          successMessage: 'Deal accepted! Item ready in cart at ₹${agreedPrice.toStringAsFixed(0)}.',
         );
+
+        final title = updatedBargain.productTitle ?? 'Handcrafted Garment';
+
+        // Notify consumer
+        ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+          title: '🎉 Seller Accepted Your Bargain (₹${agreedPrice.toStringAsFixed(0)})!',
+          body: 'Great news! The boutique accepted your lower bargain value of ₹${agreedPrice.toStringAsFixed(0)} for "$title". You can now add this cloth to your shopping bag with the new bargained price!',
+          category: NotificationCategory.offer,
+          deepLink: '/cart',
+          targetUserId: updatedBargain.consumerId,
+          payload: {
+            'bargainId': bargainId,
+            'agreedPrice': agreedPrice,
+            'productTitle': title,
+          },
+        );
+
+        // Auto-sync into cart state
+        ref.read(cartProvider.notifier).addBargainDealToCart(updatedBargain);
       }
       return;
     }
@@ -481,35 +592,71 @@ class BargainNotifier extends Notifier<BargainState> {
       });
 
       // 2. Update bargain row status
-      await db.from('bargains').update({
+      final updatedRows = await db.from('bargains').update({
         'status': 'accepted',
         'agreed_price': agreedPrice,
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', bargainId);
+      }).eq('id', bargainId).select('*, products(title, base_price, product_images(url))');
+
+      final bRow = (updatedRows as List).isNotEmpty ? updatedRows.first as Map<String, dynamic> : null;
+      final actualConsumerId = (bRow?['consumer_id'] as String?) ?? state.activeBargain?.consumerId ?? actorId;
+      final productData = (bRow?['products'] as Map<String, dynamic>?) ?? {};
+      final title = (productData['title'] as String?) ?? state.activeBargain?.productTitle ?? 'Handcrafted Garment';
 
       // 3. Upsert into cart_items with special agreed price
-      final active = state.activeBargain;
-      if (active != null) {
-        try {
-          await db.from('cart_items').upsert({
-            'consumer_id': active.consumerId,
-            'product_id': active.productId,
-            'variant_id': active.variantId,
-            'bargain_id': bargainId,
-            'quantity': 1,
-            'agreed_price': agreedPrice,
-          }, onConflict: 'consumer_id,variant_id');
-        } catch (cartErr) {
-          debugPrint('[BargainController] Cart upsert note: $cartErr');
-        }
+      final acceptedBargain = (state.activeBargain ?? Bargain(
+        id: bargainId,
+        consumerId: actualConsumerId,
+        sellerId: (bRow?['seller_id'] as String?) ?? '',
+        productId: (bRow?['product_id'] as String?) ?? '',
+        variantId: (bRow?['variant_id'] as String?) ?? '',
+        status: BargainStatus.accepted,
+        consumerOffer: agreedPrice,
+        basePrice: (productData['base_price'] as num? ?? agreedPrice).toDouble(),
+        minBargainPrice: 0,
+        productTitle: title,
+        expiresAt: DateTime.now().add(const Duration(hours: 24)),
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      )).copyWith(
+        status: BargainStatus.accepted,
+        agreedPrice: agreedPrice,
+      );
+
+      try {
+        await db.from('cart_items').upsert({
+          'consumer_id': actualConsumerId,
+          'product_id': acceptedBargain.productId,
+          'variant_id': acceptedBargain.variantId,
+          'bargain_id': bargainId,
+          'quantity': 1,
+          'agreed_price': agreedPrice,
+        }, onConflict: 'consumer_id,variant_id');
+      } catch (cartErr) {
+        debugPrint('[BargainController] Cart upsert note: $cartErr');
       }
+
+      // Notify consumer
+      ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+        title: '🎉 Seller Accepted Your Bargain (₹${agreedPrice.toStringAsFixed(0)})!',
+        body: 'Great news! The boutique accepted your lower bargain value of ₹${agreedPrice.toStringAsFixed(0)} for "$title". You can now add this cloth to your shopping bag with the new bargained price!',
+        category: NotificationCategory.offer,
+        deepLink: '/cart',
+        customId: 'bargain-accept-$bargainId',
+        targetUserId: actualConsumerId,
+        payload: {
+          'bargainId': bargainId,
+          'agreedPrice': agreedPrice,
+          'productTitle': title,
+        },
+      );
+
+      // Auto-sync into cart state
+      ref.read(cartProvider.notifier).addBargainDealToCart(acceptedBargain);
 
       state = state.copyWith(
         isLoading: false,
-        activeBargain: active?.copyWith(
-          status: BargainStatus.accepted,
-          agreedPrice: agreedPrice,
-        ),
+        activeBargain: acceptedBargain,
         successMessage: 'Deal accepted! Item is ready in cart at ₹${agreedPrice.toStringAsFixed(0)}.',
       );
     } catch (e) {
@@ -528,13 +675,27 @@ class BargainNotifier extends Notifier<BargainState> {
     state = state.copyWith(isLoading: true, clearError: true);
     final db = _db;
 
+    final active = state.activeBargain;
+    final title = active?.productTitle ?? 'Handcrafted Garment';
+
     if (db == null) {
-      final updatedBargain = state.activeBargain?.copyWith(
+      final updatedBargain = active?.copyWith(
         status: BargainStatus.rejected,
       );
       if (updatedBargain != null) {
         _mockBargains[bargainId] = updatedBargain;
       }
+
+      // Notify consumer
+      ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+        title: '❌ Bargain Offer Declined',
+        body: 'The boutique declined the bargain offer for "$title". You can view the chat to submit a new offer or purchase at listed price.',
+        category: NotificationCategory.offer,
+        deepLink: '/bargain/$bargainId',
+        targetUserId: active?.consumerId,
+        payload: {'bargainId': bargainId},
+      );
+
       state = state.copyWith(isLoading: false, clearActive: true, messages: []);
       return;
     }
@@ -548,6 +709,16 @@ class BargainNotifier extends Notifier<BargainState> {
       });
 
       await db.from('bargains').update({'status': 'rejected'}).eq('id', bargainId);
+
+      // Notify consumer
+      ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+        title: '❌ Bargain Offer Declined',
+        body: 'The boutique declined the bargain offer for "$title". You can view the chat to submit a new offer or purchase at listed price.',
+        category: NotificationCategory.offer,
+        deepLink: '/bargain/$bargainId',
+        targetUserId: active?.consumerId,
+        payload: {'bargainId': bargainId},
+      );
 
       state = state.copyWith(isLoading: false, clearActive: true, messages: []);
     } catch (e) {
@@ -574,7 +745,7 @@ class BargainNotifier extends Notifier<BargainState> {
           .select(
               '*, products(title, base_price, product_images(url))')
           .eq('consumer_id', consumerId)
-          .inFilter('status', ['open', 'countered', 'accepted'])
+          .inFilter('status', ['open', 'countered', 'accepted', 'rejected'])
           .order('updated_at', ascending: false);
 
       final bargains = (data as List).map((row) {

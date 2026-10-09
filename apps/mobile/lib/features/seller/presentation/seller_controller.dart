@@ -63,7 +63,30 @@ class SellerController extends Notifier<SellerState> {
   Future<void> _loadShopAndProducts(String sellerId) async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final shop = await _repository.getShop(sellerId);
+      var shop = await _repository.getShop(sellerId);
+      if (shop == null && sellerId.isNotEmpty && !sellerId.startsWith('mock') && !sellerId.startsWith('guest')) {
+        final authState = ref.read(authProvider);
+        final sellerName = authState.user?.fullName?.isNotEmpty == true
+            ? authState.user!.fullName!
+            : 'Local Boutique Store';
+        final initialShop = ShopModel(
+          id: '',
+          sellerId: sellerId,
+          name: sellerName,
+          address: 'Johari Bazaar, Pink City, Jaipur',
+          latitude: 26.9200,
+          longitude: 75.8267,
+          status: 'verified',
+          kycStatus: 'pending',
+          avgRating: 4.8,
+        );
+        try {
+          shop = await _repository.saveShop(initialShop);
+        } catch (e) {
+          debugPrint('[SellerController] Auto-provision shop error: $e');
+        }
+      }
+
       List<ProductModel> products = [];
       if (shop != null) {
         products = await _repository.getProducts(shop.id);
@@ -211,6 +234,28 @@ class SellerController extends Notifier<SellerState> {
       ShopModel? shop = state.shop;
       if (shop == null && sellerId.isNotEmpty) {
         shop = await _repository.getShop(sellerId);
+      }
+
+      if (shop == null && sellerId.isNotEmpty && !sellerId.startsWith('mock') && !sellerId.startsWith('guest')) {
+        final sellerName = authState.user?.fullName?.isNotEmpty == true
+            ? authState.user!.fullName!
+            : 'Local Boutique Store';
+        final initialShop = ShopModel(
+          id: '',
+          sellerId: sellerId,
+          name: sellerName,
+          address: 'Johari Bazaar, Pink City, Jaipur',
+          latitude: 26.9200,
+          longitude: 75.8267,
+          status: 'verified',
+          kycStatus: 'pending',
+          avgRating: 4.8,
+        );
+        try {
+          shop = await _repository.saveShop(initialShop);
+        } catch (e) {
+          debugPrint('[SellerController] Auto-provision shop error: $e');
+        }
       }
 
       if (shop == null) {

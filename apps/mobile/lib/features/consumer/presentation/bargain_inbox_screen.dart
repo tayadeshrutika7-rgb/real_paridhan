@@ -335,53 +335,158 @@ class _BargainCard extends ConsumerWidget {
                 ],
               ),
             ),
-            if (bargain.status == BargainStatus.accepted && !isSellerView)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-                  border: Border(top: BorderSide(color: Colors.green.shade200)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Deal Accepted (₹${(bargain.agreedPrice ?? bargain.consumerOffer).toStringAsFixed(0)})',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                            color: Colors.green.shade800,
+            if (!isSellerView) ...[
+              if (bargain.status == BargainStatus.accepted)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                    border: Border(top: BorderSide(color: Colors.green.shade200)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
+                          const SizedBox(width: 6),
+                          Text(
+                            '🎉 Deal Accepted (₹${(bargain.agreedPrice ?? bargain.consumerOffer).toStringAsFixed(0)})',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.green.shade800,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        ],
                       ),
-                      icon: const Icon(Icons.shopping_bag_outlined, size: 14),
-                      label: const Text('View Bag ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      onPressed: () async {
-                        await ref.read(cartProvider.notifier).addBargainDealToCart(bargain);
-                        if (context.mounted) {
-                          context.push('/cart');
-                        }
-                      },
-                    ),
-                  ],
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
+                        icon: const Icon(Icons.shopping_bag_outlined, size: 14),
+                        label: const Text('Add to Bag ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: () async {
+                          await ref.read(cartProvider.notifier).addBargainDealToCart(bargain);
+                          if (context.mounted) {
+                            context.push('/cart');
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                )
+              else if (bargain.status == BargainStatus.countered)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                    border: Border(top: BorderSide(color: Colors.orange.shade200)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.chat_bubble_outline, size: 16, color: Colors.orange.shade700),
+                          const SizedBox(width: 6),
+                          Text(
+                            '💬 Seller Counter: ₹${(bargain.counterOffer ?? 0).toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.orange.shade900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
+                        onPressed: onTap,
+                        child: const Text('Review Offer ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                )
+              else if (bargain.status == BargainStatus.rejected)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                    border: Border(top: BorderSide(color: Colors.red.shade200)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.cancel_outlined, size: 16, color: Colors.red.shade700),
+                          const SizedBox(width: 6),
+                          Text(
+                            '❌ Offer Declined by Boutique',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.red.shade800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: onTap,
+                        child: Text('View Details ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red.shade800)),
+                      ),
+                    ],
+                  ),
+                )
+              else if (bargain.status == BargainStatus.open)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                    border: Border(top: BorderSide(color: Colors.blue.shade100)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.hourglass_top, size: 14, color: Colors.blue.shade700),
+                      const SizedBox(width: 6),
+                      Text(
+                        '⏳ Waiting for shopkeeper response...',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+            ],
           ],
         ),
       ),

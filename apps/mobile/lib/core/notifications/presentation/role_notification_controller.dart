@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../constants/app_constants.dart';
+import '../../network/supabase_client.dart';
 import '../../../features/auth/presentation/auth_state.dart';
 import '../data/notification_repository.dart';
 import '../domain/app_notification_model.dart';
@@ -106,11 +109,12 @@ abstract class RoleNotificationBaseNotifier extends Notifier<RoleNotificationSta
     String? deepLink,
     Map<String, dynamic>? payload,
     String? customId,
+    String? targetUserId,
   }) async {
-    final userId = state.userId ?? 'system_user';
+    final effectiveUserId = targetUserId ?? state.userId ?? 'system_user';
     final notification = AppNotificationModel(
       id: customId ?? 'notif-${DateTime.now().microsecondsSinceEpoch}-${++_idCounter}',
-      userId: userId,
+      userId: effectiveUserId,
       role: role,
       category: category,
       title: title,
@@ -122,10 +126,10 @@ abstract class RoleNotificationBaseNotifier extends Notifier<RoleNotificationSta
       payload: payload ?? {},
     );
 
-    // Save to repository
+    // Save to repository (in-memory partition and Supabase)
     final saved = await _repository.insertNotification(notification);
 
-    // Update state
+    // Update state so the notification and active banner immediately appear for the active user
     final currentList = state.notifications;
     state = state.copyWith(
       notifications: [saved, ...currentList.where((n) => n.id != saved.id)],
@@ -181,6 +185,147 @@ abstract class RoleNotificationBaseNotifier extends Notifier<RoleNotificationSta
 class ConsumerNotificationNotifier extends RoleNotificationBaseNotifier {
   @override
   UserRole get role => UserRole.consumer;
+  RealtimeChannel? _bargainsChannel;
+
+  @override
+  Future<void> loadNotifications({String? userId}) async {
+    await super.loadNotifications(userId: userId);
+    final effectiveUserId = userId ?? state.userId;
+    if (effectiveUserId == null || effectiveUserId.isEmpty || effectiveUserId.startsWith('guest')) {
+      return;
+    }
+
+    _subscribeToConsumerBargains(effectiveUserId);
+    await _syncBargainNotifications(effectiveUserId);
+  }
+
+  void _subscribeToConsumerBargains(String consumerId) {
+    final client = SupabaseService.client;
+    if (client == null) return;
+
+    _bargainsChannel?.unsubscribe();
+    _bargainsChannel = client
+        .channel('consumer_bargain_stream:$consumerId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bargains',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'consumer_id',
+            value: consumerId,
+          ),
+          callback: (payload) {
+            final rec = payload.newRecord;
+            if (rec.isEmpty) return;
+            final status = rec['status'] as String?;
+            final agreedPrice = rec['agreed_price'] != null
+                ? (rec['agreed_price'] as num).toDouble()
+                : (rec['consumer_offer'] as num?)?.toDouble() ?? 0.0;
+            final bargainId = rec['id'] as String;
+
+            if (status == 'accepted') {
+              postNotification(
+                title: '🎉 Seller Accepted Your Bargain (₹${agreedPrice.toStringAsFixed(0)})!',
+                body: 'Great news! The shopkeeper agreed to your lower price. You can now add this cloth to your shopping bag with the new bargained price of ₹${agreedPrice.toStringAsFixed(0)}!',
+                category: NotificationCategory.offer,
+                deepLink: '/cart',
+                customId: 'bargain-accept-$bargainId',
+                targetUserId: consumerId,
+              );
+            } else if (status == 'countered') {
+              final counter = (rec['counter_offer'] as num?)?.toDouble() ?? 0.0;
+              postNotification(
+                title: '💬 New Counter-Offer: ₹${counter.toStringAsFixed(0)}',
+                body: 'The boutique replied with a counter-offer of ₹${counter.toStringAsFixed(0)}. Tap to review and accept!',
+                category: NotificationCategory.offer,
+                deepLink: '/bargain/$bargainId',
+                customId: 'bargain-counter-$bargainId',
+                targetUserId: consumerId,
+              );
+            } else if (status == 'rejected') {
+              postNotification(
+                title: '❌ Bargain Offer Declined',
+                body: 'The boutique declined the bargain offer. You can view the chat to submit a new offer or purchase at listed price.',
+                category: NotificationCategory.offer,
+                deepLink: '/bargain/$bargainId',
+                customId: 'bargain-reject-$bargainId',
+                targetUserId: consumerId,
+              );
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _syncBargainNotifications(String consumerId) async {
+    final client = SupabaseService.client;
+    if (client == null) return;
+
+    try {
+      final res = await client
+          .from('bargains')
+          .select('*, products(title)')
+          .eq('consumer_id', consumerId)
+          .inFilter('status', ['accepted', 'countered', 'rejected'])
+          .order('updated_at', ascending: false)
+          .limit(10);
+
+      for (final row in (res as List)) {
+        final m = row as Map<String, dynamic>;
+        final status = m['status'] as String?;
+        final bId = m['id'] as String;
+        final prod = m['products'] as Map<String, dynamic>? ?? {};
+        final title = (prod['title'] as String?) ?? 'Handcrafted Garment';
+        final agreed = m['agreed_price'] != null
+            ? (m['agreed_price'] as num).toDouble()
+            : (m['consumer_offer'] as num?)?.toDouble() ?? 0.0;
+        final counter = m['counter_offer'] != null
+            ? (m['counter_offer'] as num).toDouble()
+            : 0.0;
+
+        if (status == 'accepted') {
+          final notifId = 'bargain-accept-$bId';
+          if (!state.notifications.any((n) => n.id == notifId)) {
+            await postNotification(
+              customId: notifId,
+              title: '🎉 Seller Accepted Your Bargain (₹${agreed.toStringAsFixed(0)})!',
+              body: 'Great news! The shopkeeper agreed to your lower price for "$title". You can now add this cloth to your shopping bag with the new bargained price of ₹${agreed.toStringAsFixed(0)}!',
+              category: NotificationCategory.offer,
+              deepLink: '/cart',
+              targetUserId: consumerId,
+            );
+          }
+        } else if (status == 'countered') {
+          final notifId = 'bargain-counter-$bId';
+          if (!state.notifications.any((n) => n.id == notifId)) {
+            await postNotification(
+              customId: notifId,
+              title: '💬 New Counter-Offer: ₹${counter.toStringAsFixed(0)}',
+              body: 'The boutique replied with a counter-offer of ₹${counter.toStringAsFixed(0)} for "$title". Tap to review and accept!',
+              category: NotificationCategory.offer,
+              deepLink: '/bargain/$bId',
+              targetUserId: consumerId,
+            );
+          }
+        } else if (status == 'rejected') {
+          final notifId = 'bargain-reject-$bId';
+          if (!state.notifications.any((n) => n.id == notifId)) {
+            await postNotification(
+              customId: notifId,
+              title: '❌ Bargain Offer Declined',
+              body: 'The boutique declined the bargain offer for "$title". You can view the chat to submit a new offer.',
+              category: NotificationCategory.offer,
+              deepLink: '/bargain/$bId',
+              targetUserId: consumerId,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[ConsumerNotificationNotifier] sync error: $e');
+    }
+  }
 }
 
 class SellerNotificationNotifier extends RoleNotificationBaseNotifier {

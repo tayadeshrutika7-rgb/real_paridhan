@@ -5,6 +5,8 @@ import 'core/network/supabase_client.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
 
+import 'core/notifications/presentation/in_app_notification_banner_overlay.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SupabaseService.initialize();
@@ -32,6 +34,14 @@ class ParidhanApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       routerConfig: router,
+      builder: (context, child) {
+        return Stack(
+          children: [
+            if (child != null) child,
+            const InAppNotificationBannerOverlay(),
+          ],
+        );
+      },
     );
   }
 }

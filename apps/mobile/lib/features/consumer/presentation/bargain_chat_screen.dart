@@ -630,24 +630,183 @@ class _TerminalBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (bargain.status == BargainStatus.accepted) {
+      final agreed = bargain.agreedPrice ?? bargain.consumerOffer;
+      final savings = bargain.basePrice > agreed ? bargain.basePrice - agreed : 0.0;
+      final savingsPct = bargain.basePrice > 0 ? (savings / bargain.basePrice) * 100 : 0.0;
+
+      return Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.green.shade50, Colors.teal.shade50],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.green.shade300, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade600,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isSellerView ? 'Bargain Deal Closed!' : '🎉 Seller Accepted Your Bargain!',
+                        style: TextStyle(
+                          color: Colors.green.shade900,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isSellerView
+                          ? 'Deal locked at ₹${agreed.toStringAsFixed(0)} with the customer.'
+                          : 'The boutique agreed to your lower price! You can now add this cloth to your shopping bag with the new bargained price.',
+                        style: TextStyle(
+                          color: Colors.green.shade800,
+                          fontSize: 12.5,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Agreed Deal Price',
+                        style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                      ),
+                      Row(
+                        children: [
+                          Text(
+                            '₹${agreed.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.green.shade800,
+                            ),
+                          ),
+                          if (bargain.basePrice > 0) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              '₹${bargain.basePrice.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.textSecondary,
+                                decoration: TextDecoration.lineThrough,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                  if (savings > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Save ₹${savings.toStringAsFixed(0)} (${savingsPct.toStringAsFixed(0)}% OFF)',
+                        style: TextStyle(
+                          color: Colors.green.shade900,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (!isSellerView) ...[
+              const SizedBox(height: 14),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.shopping_bag, size: 20, color: Colors.white),
+                label: Text(
+                  'Add to Shopping Bag at ₹${agreed.toStringAsFixed(0)} & Checkout ➔',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
+                ),
+                onPressed: () async {
+                  await ref.read(cartProvider.notifier).addBargainDealToCart(bargain);
+                  if (context.mounted) {
+                    context.push('/cart');
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              const Center(
+                child: Text(
+                  '⚡ Exclusive deal price reserved for your order • 90-min delivery',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
     Color color;
     String message;
     IconData icon;
 
     switch (bargain.status) {
-      case BargainStatus.accepted:
-        color = Colors.green.shade600;
-        message = 'Deal accepted at ₹${bargain.agreedPrice?.toStringAsFixed(0) ?? '—'}!';
-        icon = Icons.check_circle_outline;
-        break;
       case BargainStatus.rejected:
         color = Colors.red.shade600;
-        message = 'This bargain was rejected.';
+        message = 'This bargain negotiation was closed without a deal.';
         icon = Icons.cancel_outlined;
         break;
       case BargainStatus.expired:
         color = Colors.grey.shade600;
-        message = 'This bargain has expired.';
+        message = 'This bargain offer has expired.';
         icon = Icons.timer_off_outlined;
         break;
       default:
@@ -657,45 +816,12 @@ class _TerminalBanner extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
       color: color.withValues(alpha: 0.1),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Text(message, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 15)),
-            ],
-          ),
-          if (bargain.status == BargainStatus.accepted && !isSellerView) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.shopping_bag_outlined, size: 20),
-                label: Text('View in Shopping Bag (₹${(bargain.agreedPrice ?? bargain.consumerOffer).toStringAsFixed(0)}) ➔'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: () async {
-                  await ref.read(cartProvider.notifier).addBargainDealToCart(bargain);
-                  if (context.mounted) {
-                    context.push('/cart');
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              '⚡ Deal price locked for 2 hours • 90-min Hyperlocal Delivery',
-              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontWeight: FontWeight.w500),
-            ),
-          ],
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Text(message, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14)),
         ],
       ),
     );
