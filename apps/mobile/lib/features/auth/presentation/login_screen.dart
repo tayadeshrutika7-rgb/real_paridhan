@@ -206,8 +206,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         prefixIcon: Icon(Icons.email_outlined),
                       ),
                       validator: (value) {
-                        if (value == null || value.trim().isEmpty || !value.contains('@')) {
-                          return 'Enter a valid email address';
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Please enter your email address';
+                        }
+                        final emailRegex = RegExp(r'^[\w\.\+-]+@([\w-]+\.)+[\w-]{2,}$');
+                        if (!emailRegex.hasMatch(value.trim())) {
+                          return 'Please enter a valid email address (e.g. name@example.com)';
                         }
                         return null;
                       },

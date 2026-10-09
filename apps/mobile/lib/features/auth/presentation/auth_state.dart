@@ -224,6 +224,9 @@ class AuthNotifier extends Notifier<AuthState> {
 
   String _formatAuthError(dynamic e) {
     final str = e.toString();
+    if (str.contains('Unable to validate email address') || str.contains('invalid format')) {
+      return 'Invalid email address format. Please enter a complete email address including domain (e.g., seller@example.com).';
+    }
     if (str.contains('Error sending confirmation email') || str.contains('unexpected_failure')) {
       return 'Supabase cannot send confirmation emails (rate limit or unconfigured SMTP).\nFix: In Supabase Dashboard ➔ Authentication ➔ Providers ➔ Email ➔ Turn OFF "Confirm email".';
     }

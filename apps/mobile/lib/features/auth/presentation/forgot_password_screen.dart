@@ -99,8 +99,12 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                               prefixIcon: Icon(Icons.email_outlined),
                             ),
                             validator: (val) {
-                              if (val == null || val.trim().isEmpty || !val.contains('@')) {
-                                return 'Please enter a valid email address';
+                              if (val == null || val.trim().isEmpty) {
+                                return 'Please enter your email address';
+                              }
+                              final emailRegex = RegExp(r'^[\w\.\+-]+@([\w-]+\.)+[\w-]{2,}$');
+                              if (!emailRegex.hasMatch(val.trim())) {
+                                return 'Please enter a valid email address (e.g. name@example.com)';
                               }
                               return null;
                             },
