@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../data/seller_repository.dart';
@@ -204,12 +205,27 @@ class SellerController extends Notifier<SellerState> {
 
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final shopId = state.shop?.id ?? 'shop-jaipur-01';
-      final productId = existingProductId ?? 'prod-${DateTime.now().millisecondsSinceEpoch}';
+      final authState = ref.read(authProvider);
+      final sellerId = authState.user?.id ?? SupabaseService.client?.auth.currentUser?.id ?? '';
+      
+      ShopModel? shop = state.shop;
+      if (shop == null && sellerId.isNotEmpty) {
+        shop = await _repository.getShop(sellerId);
+      }
+
+      if (shop == null) {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: 'No boutique shop profile found. Please fill and save your shop details in Edit Profile first.',
+        );
+        return false;
+      }
 
       final product = ProductModel(
-        id: productId,
-        shopId: shopId,
+        id: existingProductId ?? '',
+        shopId: shop.id,
+        shopName: shop.name,
+        sellerId: shop.sellerId,
         categoryId: categoryId,
         title: title,
         description: description,
@@ -220,19 +236,21 @@ class SellerController extends Notifier<SellerState> {
         variants: variants,
       );
 
-      await _repository.createOrUpdateProduct(product, variants);
-      final updatedProducts = await _repository.getProducts(shopId);
+      final published = await _repository.createOrUpdateProduct(product, variants);
+      final updatedProducts = await _repository.getProducts(shop.id);
 
       state = state.copyWith(
         isLoading: false,
-        products: updatedProducts,
+        shop: shop,
+        products: updatedProducts.isNotEmpty ? updatedProducts : [published],
         successMessage: 'Product published successfully!',
       );
       return true;
     } catch (e) {
+      debugPrint('[SellerController] Error creating product: $e');
       state = state.copyWith(
         isLoading: false,
-        errorMessage: e.toString(),
+        errorMessage: 'Failed to publish product: $e',
       );
       return false;
     }

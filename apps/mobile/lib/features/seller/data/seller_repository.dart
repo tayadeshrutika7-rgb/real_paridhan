@@ -308,20 +308,67 @@ class SellerRepository {
     }
 
     try {
-      final productData = product.toJson();
-      final productRes = await client.from('products').upsert(productData).select().single();
+      final productPayload = product.toSupabasePayload();
+      final isExistingUuid = product.id.isNotEmpty &&
+          !product.id.startsWith('prod-') &&
+          !product.id.startsWith('mock-');
+
+      Map<String, dynamic> productRes;
+      if (isExistingUuid) {
+        productPayload['id'] = product.id;
+        productPayload['updated_at'] = DateTime.now().toIso8601String();
+        productRes = await client.from('products').upsert(productPayload).select().single();
+      } else {
+        productRes = await client.from('products').insert(productPayload).select().single();
+      }
+
       final createdProduct = ProductModel.fromJson(productRes);
 
       // Upsert variants
       final List<VariantModel> savedVariants = [];
       for (final variant in variants) {
-        final variantData = variant.copyWith(productId: createdProduct.id).toJson();
-        final varRes = await client.from('product_variants').upsert(variantData).select().single();
+        final variantPayload = <String, dynamic>{
+          'product_id': createdProduct.id,
+          'size': variant.size,
+          'color': variant.color,
+          'stock_qty': variant.stockQty,
+          if (variant.priceOverride != null) 'price_override': variant.priceOverride,
+          if (variant.sku != null && variant.sku!.isNotEmpty) 'sku': variant.sku,
+          'image_urls': variant.imageUrls,
+        };
+
+        final isVariantUuid = variant.id.isNotEmpty &&
+            !variant.id.startsWith('var-') &&
+            !variant.id.startsWith('mock-');
+
+        Map<String, dynamic> varRes;
+        if (isVariantUuid) {
+          variantPayload['id'] = variant.id;
+          variantPayload['updated_at'] = DateTime.now().toIso8601String();
+          varRes = await client.from('product_variants').upsert(variantPayload).select().single();
+        } else {
+          varRes = await client.from('product_variants').insert(variantPayload).select().single();
+        }
         savedVariants.add(VariantModel.fromJson(varRes));
       }
 
+      // Record in product_images table if images are present
+      for (final variant in variants) {
+        for (int i = 0; i < variant.imageUrls.length; i++) {
+          final imgUrl = variant.imageUrls[i];
+          try {
+            await client.from('product_images').insert({
+              'product_id': createdProduct.id,
+              'url': imgUrl,
+              'display_order': i,
+              'is_primary': i == 0,
+            });
+          } catch (_) {}
+        }
+      }
+
       final fullProduct = createdProduct.copyWith(variants: savedVariants);
-      final index = _mockProducts.indexWhere((p) => p.id == product.id);
+      final index = _mockProducts.indexWhere((p) => p.id == fullProduct.id);
       if (index >= 0) {
         _mockProducts[index] = fullProduct;
       } else {
@@ -330,8 +377,8 @@ class SellerRepository {
       ConsumerRepository.addOrUpdateMockProduct(fullProduct);
       return fullProduct;
     } catch (e) {
-      debugPrint('[SellerRepository] Error creating product: $e');
-      return product.copyWith(variants: variants);
+      debugPrint('[SellerRepository] Fatal error creating product in Supabase: $e');
+      rethrow;
     }
   }
 

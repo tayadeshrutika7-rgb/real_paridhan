@@ -90,6 +90,20 @@ class ProductModel {
     };
   }
 
+  Map<String, dynamic> toSupabasePayload() {
+    return {
+      'shop_id': shopId,
+      'category_id': categoryId,
+      if (brandId != null && brandId!.isNotEmpty) 'brand_id': brandId,
+      'title': title,
+      if (description != null && description!.isNotEmpty) 'description': description,
+      'base_price': basePrice,
+      'min_bargain_price': minBargainPrice,
+      'bargain_enabled': bargainEnabled,
+      'status': status,
+    };
+  }
+
   ProductModel copyWith({
     String? id,
     String? shopId,

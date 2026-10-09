@@ -42,9 +42,19 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     ),
   ];
 
+  String _selectedCategoryId = 'a0000001-0000-0000-0000-000000000001'; // Women Ethnic Wear
+
   String? _compressionStatus;
   bool _isDeviceUploading = false;
   String? _deviceUploadMessage;
+
+  static const List<Map<String, String>> _garmentCategories = [
+    {'id': 'a0000001-0000-0000-0000-000000000001', 'name': 'Women Ethnic Wear (Kurtis, Tops, Suits)'},
+    {'id': 'a0000001-0000-0000-0000-000000000003', 'name': 'Sarees & Lehengas (Festive & Bridal)'},
+    {'id': 'a0000001-0000-0000-0000-000000000002', 'name': 'Men Kurtas & Apparel (Sherwanis, Sets)'},
+    {'id': 'a0000001-0000-0000-0000-000000000004', 'name': 'Kids Traditional & Festive'},
+    {'id': 'a0000001-0000-0000-0000-000000000005', 'name': 'Jaipuri Footwear & Juttis'},
+  ];
 
   // Preset boutique image choices for quick selection
   static const List<Map<String, String>> _sampleBoutiqueImages = [
@@ -606,7 +616,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     final success = await ref.read(sellerProvider.notifier).createOrUpdateProduct(
       title: _titleController.text.trim(),
       description: _descriptionController.text.trim(),
-      categoryId: 'b0000001-0000-0000-0000-000000000001', // Kurtas & Kurtis
+      categoryId: _selectedCategoryId,
       basePrice: basePrice,
       minBargainPrice: minPrice,
       bargainEnabled: _bargainEnabled,
@@ -616,11 +626,20 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Product and all images published successfully to Supabase DB!'),
+          content: Text('Product and all images published successfully to your catalog!'),
           backgroundColor: AppTheme.successColor,
         ),
       );
       context.pop();
+    } else if (mounted) {
+      final err = ref.read(sellerProvider).errorMessage ?? 'Failed to publish product.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err),
+          backgroundColor: AppTheme.errorColor,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -646,6 +665,31 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
                     // Product Photos & Multi-Upload Section
                     _buildMultipleImageUploadSection(),
                     const SizedBox(height: 20),
+
+                    // Garment Category Selector
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedCategoryId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Garment Category',
+                        prefixIcon: Icon(Icons.category_outlined),
+                      ),
+                      items: _garmentCategories.map((c) {
+                        return DropdownMenuItem<String>(
+                          value: c['id'],
+                          child: Text(
+                            c['name']!,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedCategoryId = val);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
 
                     // Title & Description
                     TextFormField(
