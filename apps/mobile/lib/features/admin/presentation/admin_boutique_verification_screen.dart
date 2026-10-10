@@ -364,14 +364,33 @@ class _BoutiqueKycCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        item.shopName,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.shopName,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          if (item.businessType != null && item.businessType!.isNotEmpty)
+                            Container(
+                              margin: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                item.businessType!.replaceAll('_', ' ').toUpperCase(),
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+                              ),
+                            ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
-                        'Owner: ${item.ownerName} • ${item.ownerPhone}',
-                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                        'Owner: ${item.ownerName} • Phone: ${item.ownerPhone}',
+                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
                       ),
                     ],
                   ),
@@ -403,7 +422,7 @@ class _BoutiqueKycCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Email: ${item.ownerEmail} • Registered: ${item.submittedAt.day}/${item.submittedAt.month}/${item.submittedAt.year}',
+              'Email: ${item.ownerEmail} • Submitted: ${item.submittedAt.day}/${item.submittedAt.month}/${item.submittedAt.year}',
               style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
             ),
 
@@ -414,19 +433,20 @@ class _BoutiqueKycCard extends StatelessWidget {
               children: [
                 const Icon(Icons.badge_outlined, size: 16, color: AppTheme.primaryColor),
                 const SizedBox(width: 6),
-                Text('GSTIN: ${item.gstin}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                Text('GSTIN: ${item.gstin}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, fontFamily: 'monospace')),
                 const Spacer(),
-                Text('Reg No: ${item.businessRegNumber}', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                Text('Trade License: ${item.businessRegNumber}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
               ],
             ),
             const SizedBox(height: 6),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.accentColor),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    '${item.address} (${item.cityZone})',
+                    '${item.address}${item.landmark != null && item.landmark!.isNotEmpty ? " (Near ${item.landmark})" : ""}, ${item.cityZone}${item.pincode != null && item.pincode!.isNotEmpty ? " - ${item.pincode}" : ""}',
                     style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                   ),
                 ),
@@ -435,7 +455,7 @@ class _BoutiqueKycCard extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // Sensitive Identity & Bank Information Card with Super Admin Unmask Toggle
+            // Financial & Government Identity Card (Unmasked Full Details - No Stars)
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -471,26 +491,111 @@ class _BoutiqueKycCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'PAN: ${isUnmasked ? item.panNumber : item.maskedPan}',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          'PAN: ${item.panNumber}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
                         ),
                       ),
                       Expanded(
                         child: Text(
-                          'Aadhaar: ${isUnmasked ? item.aadhaarNumber : item.maskedAadhaar}',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          'Aadhaar: ${item.aadhaarNumber}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
-                    'Bank: ${item.bankName} • A/C: ${isUnmasked ? item.bankAccountNumber : item.maskedBankAccount} • IFSC: ${item.bankIfsc}',
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    'Bank: ${item.bankName}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                   ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'A/C No: ${item.bankAccountNumber}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: AppTheme.primaryColor),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'IFSC: ${item.bankIfsc}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, fontFamily: 'monospace', color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (item.bankAccountName != null && item.bankAccountName!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Account Holder: ${item.bankAccountName}',
+                      style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                    ),
+                  ],
                 ],
               ),
             ),
+
+            // Attached KYC Documents List
+            if (item.submittedDocuments.isNotEmpty || (item.licenseDocumentUrl != null && item.licenseDocumentUrl!.isNotEmpty)) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFBBF7D0)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.file_present_rounded, size: 16, color: AppTheme.successColor),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Attached KYC Proofs (${item.submittedDocuments.isNotEmpty ? item.submittedDocuments.length : 1} Document${(item.submittedDocuments.length > 1) ? "s" : ""} on file)',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF166534)),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        final docUrl = item.submittedDocuments.isNotEmpty
+                            ? item.submittedDocuments.first
+                            : (item.licenseDocumentUrl ?? '');
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: Text('KYC Document: ${item.shopName}'),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Document Reference:\n$docUrl', style: const TextStyle(fontSize: 12)),
+                                const SizedBox(height: 12),
+                                if (docUrl.startsWith('http'))
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      docUrl,
+                                      height: 200,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Text('Document image preview unavailable.'),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+                            ],
+                          ),
+                        );
+                      },
+                      child: const Text('View Proof', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             if (item.rejectionReason != null && item.rejectionReason!.isNotEmpty) ...[
               const SizedBox(height: 10),

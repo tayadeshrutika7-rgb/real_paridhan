@@ -44,8 +44,16 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
     // Prepare Revenue Slices based on selected timeframe
     final List<PieSliceData> revenueSlices = _buildRevenueSlices(categoryMap, _selectedTimeframe);
 
-    // Timeframe-specific KPI metrics
-    final _TimeframeMetrics metrics = _calculateMetrics(_selectedTimeframe, products.length, totalInventoryUnits);
+    // Timeframe-specific KPI metrics derived from real database records
+    final _TimeframeMetrics metrics = _calculateMetrics(
+      timeframe: _selectedTimeframe,
+      products: products,
+      totalUnits: totalInventoryUnits,
+      orders: sellerState.orders,
+      bargains: sellerState.bargains,
+      wishlistSaves: sellerState.wishlistSavesCount,
+      storeViews: sellerState.storeViewsCount,
+    );
 
     // Filtered products list for the catalog section
     final filteredProducts = _selectedCategoryFilter == 'All'
@@ -948,51 +956,121 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
     }
   }
 
-  _TimeframeMetrics _calculateMetrics(PerformanceTimeframe timeframe, int productCount, int totalUnits) {
+  _TimeframeMetrics _calculateMetrics({
+    required PerformanceTimeframe timeframe,
+    required List<ProductModel> products,
+    required int totalUnits,
+    required List<Map<String, dynamic>> orders,
+    required List<Map<String, dynamic>> bargains,
+    required int wishlistSaves,
+    required int storeViews,
+  }) {
+    final now = DateTime.now();
+    DateTime cutoff;
     switch (timeframe) {
       case PerformanceTimeframe.today:
-        return _TimeframeMetrics(
-          grossSales: '₹0.00',
-          salesGrowth: '0% from yesterday',
-          pendingOrders: 0,
-          ordersStatus: '0 orders waiting',
-          pendingPayout: '₹0.00',
-          storeViews: 24,
-          wishlistSaves: 6,
-          bargainsReceived: 3,
-          bargainsAccepted: 2,
-          inTransitOrders: 1,
-          deliveredOrders: 2,
-        );
+        cutoff = DateTime(now.year, now.month, now.day);
+        break;
       case PerformanceTimeframe.month:
-        return _TimeframeMetrics(
-          grossSales: '₹84,500.00',
-          salesGrowth: '+18.4% vs last month',
-          pendingOrders: 4,
-          ordersStatus: '4 ready to pack',
-          pendingPayout: '₹76,050.00',
-          storeViews: 412,
-          wishlistSaves: 88,
-          bargainsReceived: 56,
-          bargainsAccepted: 42,
-          inTransitOrders: 8,
-          deliveredOrders: 45,
-        );
+        cutoff = now.subtract(const Duration(days: 30));
+        break;
       case PerformanceTimeframe.year:
-        return _TimeframeMetrics(
-          grossSales: '₹10,48,200.00',
-          salesGrowth: '+34.2% YoY growth',
-          pendingOrders: 4,
-          ordersStatus: 'Active pipeline',
-          pendingPayout: '₹9,43,380.00',
-          storeViews: 5240,
-          wishlistSaves: 1140,
-          bargainsReceived: 780,
-          bargainsAccepted: 590,
-          inTransitOrders: 12,
-          deliveredOrders: 620,
-        );
+        cutoff = now.subtract(const Duration(days: 365));
+        break;
     }
+
+    bool isWithinTimeframe(Map<String, dynamic> item) {
+      final raw = item['created_at'];
+      if (raw == null) return true;
+      final dt = DateTime.tryParse(raw.toString());
+      if (dt == null) return true;
+      return dt.isAfter(cutoff);
+    }
+
+    // 1. Order fulfillment pipeline:
+    // "Pending Packing" -> active orders awaiting packing (placed, confirmed)
+    // "In-Transit" -> active orders out for delivery / packed
+    // "Delivered" -> completed delivered orders
+    int pendingPackingCount = 0;
+    int inTransitCount = 0;
+    int deliveredCount = 0;
+    double grossSalesTotal = 0.0;
+    double pendingPayoutTotal = 0.0;
+
+    for (final o in orders) {
+      final status = (o['status'] ?? '').toString().toLowerCase();
+      final total = (o['total_amount'] as num?)?.toDouble() ??
+          (o['total'] as num?)?.toDouble() ??
+          (o['subtotal'] as num?)?.toDouble() ??
+          0.0;
+      final payout = (o['seller_payout_amount'] as num?)?.toDouble() ?? (total * 0.90);
+
+      if (status == 'placed' || status == 'confirmed') {
+        pendingPackingCount++;
+      } else if (status == 'packed' || status == 'out_for_delivery') {
+        inTransitCount++;
+      } else if (status == 'delivered') {
+        deliveredCount++;
+      }
+
+      // Sales calculation based on selected timeframe
+      if (isWithinTimeframe(o)) {
+        if (status == 'delivered' || status == 'confirmed' || status == 'out_for_delivery') {
+          grossSalesTotal += total;
+        }
+        if (status == 'delivered' || status == 'placed' || status == 'confirmed' || status == 'out_for_delivery') {
+          if (o['payment_status'] != 'paid' || status != 'delivered') {
+            pendingPayoutTotal += payout;
+          }
+        }
+      }
+    }
+
+    // 2. Bargains:
+    // Count received & accepted within timeframe
+    int bargainsReceived = 0;
+    int bargainsAccepted = 0;
+
+    for (final b in bargains) {
+      if (isWithinTimeframe(b)) {
+        bargainsReceived++;
+        final bStatus = (b['status'] ?? '').toString().toLowerCase();
+        if (bStatus == 'accepted' || bStatus == 'agreed') {
+          bargainsAccepted++;
+        }
+      }
+    }
+
+    final formattedGross = '₹${grossSalesTotal.toStringAsFixed(2)}';
+    final formattedPayout = '₹${pendingPayoutTotal.toStringAsFixed(2)}';
+    final ordersStatus = pendingPackingCount == 0
+        ? '0 orders waiting'
+        : '$pendingPackingCount ready to pack';
+
+    final String salesGrowth;
+    if (orders.isEmpty) {
+      salesGrowth = '0 orders in queue';
+    } else if (timeframe == PerformanceTimeframe.today) {
+      salesGrowth = 'Live metrics today';
+    } else if (timeframe == PerformanceTimeframe.month) {
+      salesGrowth = '${orders.length} total orders (30d)';
+    } else {
+      salesGrowth = '${orders.length} total orders (1y)';
+    }
+
+    return _TimeframeMetrics(
+      grossSales: formattedGross,
+      salesGrowth: salesGrowth,
+      pendingOrders: pendingPackingCount,
+      ordersStatus: ordersStatus,
+      pendingPayout: formattedPayout,
+      storeViews: storeViews,
+      wishlistSaves: wishlistSaves,
+      bargainsReceived: bargainsReceived,
+      bargainsAccepted: bargainsAccepted,
+      inTransitOrders: inTransitCount,
+      deliveredOrders: deliveredCount,
+    );
   }
 
   List<PieSliceData> _buildInventorySlices(Map<String, List<ProductModel>> categoryMap) {

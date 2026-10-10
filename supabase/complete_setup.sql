@@ -313,6 +313,25 @@ CREATE TABLE IF NOT EXISTS public.wishlists (
   UNIQUE(consumer_id, product_id)
 );
 
+-- 4.11b Consumer Saved Addresses
+CREATE TABLE IF NOT EXISTS public.addresses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  consumer_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  full_name text NOT NULL DEFAULT 'Recipient',
+  phone text NOT NULL DEFAULT '',
+  address_line1 text NOT NULL,
+  address_line2 text,
+  landmark text DEFAULT '',
+  city text NOT NULL DEFAULT 'Amravati',
+  state text NOT NULL DEFAULT 'Maharashtra',
+  pincode text NOT NULL,
+  is_default boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_addresses_consumer ON public.addresses(consumer_id);
+
 -- 4.12 Delivery Partner Profiles
 CREATE TABLE IF NOT EXISTS public.delivery_partner_profiles (
   id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -598,6 +617,7 @@ ALTER TABLE public.bargains ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bargain_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cart_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wishlists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.addresses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.delivery_partner_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
@@ -642,6 +662,9 @@ CREATE POLICY "Cart items permissive" ON public.cart_items FOR ALL USING (true) 
 
 DROP POLICY IF EXISTS "Wishlists permissive" ON public.wishlists;
 CREATE POLICY "Wishlists permissive" ON public.wishlists FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Addresses permissive" ON public.addresses;
+CREATE POLICY "Addresses permissive" ON public.addresses FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Orders permissive" ON public.orders;
 CREATE POLICY "Orders permissive" ON public.orders FOR ALL USING (true) WITH CHECK (true);

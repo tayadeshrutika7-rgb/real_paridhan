@@ -57,9 +57,14 @@ class BoutiqueVerificationItem {
   final String bankAccountNumber;
   final String bankIfsc;
   final String bankName;
+  final String? bankAccountName;
   final String panNumber;
   final String aadhaarNumber;
   final String businessRegNumber;
+  final String? businessType;
+  final String? landmark;
+  final String? pincode;
+  final String? description;
   final List<String> submittedDocuments;
   final String? kycNotes;
   final String? rejectionReason;
@@ -77,17 +82,22 @@ class BoutiqueVerificationItem {
     required this.gstin,
     required this.address,
     required this.cityZone,
+    this.landmark = 'Johari Bazaar',
+    this.pincode = '302001',
+    this.businessType = 'Sole Proprietorship',
     this.bannerUrl,
     this.licenseDocumentUrl,
     this.bankAccountNumber = '987654321012',
     this.bankIfsc = 'HDFC0001234',
     this.bankName = 'HDFC Bank, Johari Bazaar',
+    this.bankAccountName = 'Boutique Owner',
     this.panNumber = 'ABCDE1234F',
     this.aadhaarNumber = '987654321098',
     this.businessRegNumber = 'RJ-JP-2024-8842',
     this.submittedDocuments = const [],
     this.kycNotes,
     this.rejectionReason,
+    this.description,
     required this.status,
     required this.submittedAt,
     this.verifiedAt,
@@ -111,6 +121,11 @@ class BoutiqueVerificationItem {
     return '******$last4';
   }
 
+  /// Direct Unmasked Full Accessors for Admin Verification
+  String get unmaskedPan => panNumber;
+  String get unmaskedAadhaar => aadhaarNumber;
+  String get unmaskedBankAccount => bankAccountNumber;
+
   BoutiqueVerificationItem copyWith({
     String? id,
     String? sellerId,
@@ -121,14 +136,19 @@ class BoutiqueVerificationItem {
     String? gstin,
     String? address,
     String? cityZone,
+    String? landmark,
+    String? pincode,
+    String? businessType,
     String? bannerUrl,
     String? licenseDocumentUrl,
     String? bankAccountNumber,
     String? bankIfsc,
     String? bankName,
+    String? bankAccountName,
     String? panNumber,
     String? aadhaarNumber,
     String? businessRegNumber,
+    String? description,
     List<String>? submittedDocuments,
     String? kycNotes,
     String? rejectionReason,
@@ -146,14 +166,19 @@ class BoutiqueVerificationItem {
       gstin: gstin ?? this.gstin,
       address: address ?? this.address,
       cityZone: cityZone ?? this.cityZone,
+      landmark: landmark ?? this.landmark,
+      pincode: pincode ?? this.pincode,
+      businessType: businessType ?? this.businessType,
       bannerUrl: bannerUrl ?? this.bannerUrl,
       licenseDocumentUrl: licenseDocumentUrl ?? this.licenseDocumentUrl,
       bankAccountNumber: bankAccountNumber ?? this.bankAccountNumber,
       bankIfsc: bankIfsc ?? this.bankIfsc,
       bankName: bankName ?? this.bankName,
+      bankAccountName: bankAccountName ?? this.bankAccountName,
       panNumber: panNumber ?? this.panNumber,
       aadhaarNumber: aadhaarNumber ?? this.aadhaarNumber,
       businessRegNumber: businessRegNumber ?? this.businessRegNumber,
+      description: description ?? this.description,
       submittedDocuments: submittedDocuments ?? this.submittedDocuments,
       kycNotes: kycNotes ?? this.kycNotes,
       rejectionReason: rejectionReason ?? this.rejectionReason,
@@ -165,49 +190,89 @@ class BoutiqueVerificationItem {
 
   factory BoutiqueVerificationItem.fromMap(Map<String, dynamic> map) {
     Map<String, dynamic> kycMeta = {};
-    final rawDesc = map['description']?.toString();
-    if (rawDesc != null && rawDesc.contains('[KYC_META]:')) {
+    String cleanDesc = '';
+    final rawDesc = map['description']?.toString() ?? '';
+    if (rawDesc.contains('[KYC_META]:')) {
       final parts = rawDesc.split('[KYC_META]:');
+      cleanDesc = parts[0].trim();
       if (parts.length > 1) {
         try {
           kycMeta = Map<String, dynamic>.from(jsonDecode(parts[1].trim()) as Map);
         } catch (_) {}
       }
+    } else {
+      cleanDesc = rawDesc.trim();
     }
 
-    final kycDocs = (map['submitted_documents'] as List?)?.map((e) => e.toString()).toList() ??
-        (map['kyc_documents'] as List?)?.map((e) => e.toString()).toList() ??
-        (kycMeta['kyc_documents'] as List?)?.map((e) => e.toString()).toList() ??
-        [];
+    String resolveStr(List<dynamic> candidates, String fallback) {
+      for (final c in candidates) {
+        if (c != null) {
+          final s = c.toString().trim();
+          if (s.isNotEmpty) return s;
+        }
+      }
+      return fallback;
+    }
 
-    final kycStatusStr = map['kyc_status'] ??
-        (map['is_verified'] == true
-            ? 'approved'
-            : (map['status'] == 'verified'
-                ? 'approved'
-                : (map['status'] == 'pending' ? 'pending' : 'not_started')));
+    final kycDocs = <String>[];
+    for (final source in [
+      map['submitted_documents'],
+      map['kyc_documents'],
+      kycMeta['kyc_documents'],
+    ]) {
+      if (source is List) {
+        for (final item in source) {
+          final str = item?.toString().trim() ?? '';
+          if (str.isNotEmpty && !kycDocs.contains(str)) {
+            kycDocs.add(str);
+          }
+        }
+      }
+    }
+
+    final kycStatusStr = resolveStr([
+      map['kyc_status'],
+      if (map['is_verified'] == true) 'approved',
+      if (map['status'] == 'verified') 'approved',
+      if (map['status'] == 'pending') 'pending',
+    ], 'not_started');
+
+    final owner = resolveStr([
+      map['owner_name'],
+      map['full_name'],
+      kycMeta['owner_name'],
+    ], 'Boutique Owner');
 
     return BoutiqueVerificationItem(
       id: map['id']?.toString() ?? '',
       sellerId: map['seller_id']?.toString() ?? '',
-      shopName: map['name'] ?? map['shop_name'] ?? 'Boutique Store',
-      ownerName: map['owner_name'] ?? map['full_name'] ?? kycMeta['owner_name'] ?? 'Boutique Owner',
-      ownerEmail: map['owner_email'] ?? map['email'] ?? map['contact_email'] ?? kycMeta['contact_email'] ?? 'seller@paridhan.local',
-      ownerPhone: map['phone'] ?? map['contact_phone'] ?? kycMeta['contact_phone'] ?? '+91 98290 00000',
-      gstin: map['gstin'] ?? kycMeta['gstin'] ?? '08AAAAA0000A1Z5',
-      address: map['address'] ?? map['address_line1'] ?? 'Jaipur, Rajasthan',
-      cityZone: map['city_zone'] ?? kycMeta['landmark'] ?? 'Pink City / Johari Bazaar',
-      bannerUrl: map['banner_url'] ?? map['banner_image_url'] ?? map['logo_url'],
-      licenseDocumentUrl: map['license_document_url'] ?? map['license_url'] ?? (kycDocs.isNotEmpty ? kycDocs.first : null),
-      bankAccountNumber: map['bank_account_number'] ?? kycMeta['bank_account_number'] ?? '987654321012',
-      bankIfsc: map['bank_ifsc'] ?? kycMeta['bank_ifsc'] ?? 'HDFC0001234',
-      bankName: map['bank_name'] ?? kycMeta['bank_name'] ?? 'HDFC Bank, Johari Bazaar',
-      panNumber: map['pan_number'] ?? kycMeta['pan_number'] ?? 'ABCDE1234F',
-      aadhaarNumber: map['aadhaar_number'] ?? kycMeta['aadhaar_number'] ?? '987654321098',
-      businessRegNumber: map['business_reg_number'] ?? map['trade_license_number'] ?? kycMeta['trade_license_number'] ?? 'RJ-JP-2024-8842',
+      shopName: resolveStr([map['name'], map['shop_name'], kycMeta['name']], 'Boutique Store'),
+      ownerName: owner,
+      ownerEmail: resolveStr([map['owner_email'], map['email'], map['contact_email'], kycMeta['contact_email']], 'seller@paridhan.local'),
+      ownerPhone: resolveStr([map['phone'], map['contact_phone'], kycMeta['contact_phone']], '+91 98290 00000'),
+      gstin: resolveStr([map['gstin'], kycMeta['gstin']], '08AAAAA0000A1Z5'),
+      address: resolveStr([map['address'], map['address_line1'], kycMeta['address']], 'Jaipur, Rajasthan'),
+      cityZone: resolveStr([map['city_zone'], kycMeta['city_zone'], map['city'], kycMeta['landmark']], 'Pink City / Johari Bazaar'),
+      landmark: resolveStr([map['landmark'], kycMeta['landmark']], 'Johari Bazaar'),
+      pincode: resolveStr([map['pincode'], kycMeta['pincode']], '302001'),
+      businessType: resolveStr([map['business_type'], kycMeta['business_type']], 'Sole Proprietorship'),
+      bannerUrl: resolveStr([map['banner_url'], map['banner_image_url'], map['logo_url']], ''),
+      licenseDocumentUrl: resolveStr([
+        map['license_document_url'],
+        map['license_url'],
+        if (kycDocs.isNotEmpty) kycDocs.first,
+      ], ''),
+      bankAccountNumber: resolveStr([map['bank_account_number'], kycMeta['bank_account_number']], '987654321012'),
+      bankIfsc: resolveStr([map['bank_ifsc'], kycMeta['bank_ifsc']], 'HDFC0001234'),
+      bankName: resolveStr([map['bank_name'], kycMeta['bank_name']], 'HDFC Bank, Johari Bazaar'),
+      bankAccountName: resolveStr([map['bank_account_name'], kycMeta['bank_account_name'], owner], owner),
+      panNumber: resolveStr([map['pan_number'], kycMeta['pan_number']], 'ABCDE1234F'),
+      aadhaarNumber: resolveStr([map['aadhaar_number'], kycMeta['aadhaar_number']], '987654321098'),
+      businessRegNumber: resolveStr([map['business_reg_number'], map['trade_license_number'], kycMeta['trade_license_number']], 'RJ-JP-2024-8842'),
       submittedDocuments: kycDocs,
-      kycNotes: map['kyc_notes'] ?? kycMeta['notes'],
-      rejectionReason: map['kyc_rejection_reason'],
+      kycNotes: resolveStr([map['kyc_notes'], kycMeta['notes']], ''),
+      rejectionReason: resolveStr([map['kyc_rejection_reason'], kycMeta['rejection_reason']], ''),
+      description: cleanDesc,
       status: KycStatus.fromString(kycStatusStr),
       submittedAt: map['kyc_submitted_at'] != null
           ? DateTime.tryParse(map['kyc_submitted_at'].toString()) ?? DateTime.now()

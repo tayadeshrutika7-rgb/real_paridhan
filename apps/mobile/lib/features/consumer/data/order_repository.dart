@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/network/supabase_client.dart';
 import '../domain/address_model.dart';
 import '../domain/cart_item_model.dart';
@@ -82,24 +84,70 @@ class OrderRepository {
   // ---------------------------------------------------------------------------
 
   Future<List<AddressModel>> getAddresses(String userId) async {
-    final client = SupabaseService.client;
-    if (client == null || userId.isEmpty || userId.startsWith('guest') || userId.length < 32) {
-      return List.from(_mockAddresses);
-    }
-
+    // 1. First, check persistent local storage (SharedPreferences)
+    List<AddressModel> localAddresses = [];
     try {
-      final res = await client
-          .from('addresses')
-          .select()
-          .eq('consumer_id', userId)
-          .order('is_default', ascending: false);
-
-      return (res as List)
-          .map((e) => AddressModel.fromJson(e as Map<String, dynamic>))
-          .toList();
-    } catch (_) {
-      return List.from(_mockAddresses);
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'saved_addresses_${userId.isNotEmpty ? userId : "default"}';
+      final storedList = prefs.getStringList(key) ?? prefs.getStringList('saved_addresses_all');
+      if (storedList != null && storedList.isNotEmpty) {
+        for (final str in storedList) {
+          try {
+            localAddresses.add(AddressModel.fromJson(Map<String, dynamic>.from(jsonDecode(str) as Map)));
+          } catch (_) {}
+        }
+      }
+      if (localAddresses.isEmpty) {
+        final lastSingle = prefs.getString('default_delivery_address_${userId.isNotEmpty ? userId : "default"}') ??
+            prefs.getString('default_delivery_address');
+        if (lastSingle != null && lastSingle.isNotEmpty) {
+          try {
+            localAddresses.add(AddressModel.fromJson(Map<String, dynamic>.from(jsonDecode(lastSingle) as Map)));
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('[OrderRepository] Local storage read error: $e');
     }
+
+    final client = SupabaseService.client;
+    if (client != null && userId.isNotEmpty && !userId.startsWith('guest') && userId.length >= 32) {
+      try {
+        final res = await client
+            .from('addresses')
+            .select()
+            .eq('consumer_id', userId)
+            .order('is_default', ascending: false);
+
+        if (res is List && res.isNotEmpty) {
+          final cloudList = res.map((e) => AddressModel.fromJson(e as Map<String, dynamic>)).toList();
+          _persistLocalAddresses(userId, cloudList);
+          return cloudList;
+        }
+      } catch (e) {
+        debugPrint('[OrderRepository] Supabase getAddresses error: $e');
+      }
+    }
+
+    if (localAddresses.isNotEmpty) {
+      return localAddresses;
+    }
+
+    return List.from(_mockAddresses);
+  }
+
+  Future<void> _persistLocalAddresses(String userId, List<AddressModel> list) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'saved_addresses_${userId.isNotEmpty ? userId : "default"}';
+      final encoded = list.map((a) => jsonEncode(a.toJson())).toList();
+      await prefs.setStringList(key, encoded);
+      await prefs.setStringList('saved_addresses_all', encoded);
+      if (list.isNotEmpty) {
+        await prefs.setString('default_delivery_address_${userId.isNotEmpty ? userId : "default"}', jsonEncode(list.first.toJson()));
+        await prefs.setString('default_delivery_address', jsonEncode(list.first.toJson()));
+      }
+    } catch (_) {}
   }
 
   Future<AddressModel> saveAddress(AddressModel address) async {
@@ -110,6 +158,33 @@ class OrderRepository {
       _mockAddresses.insert(0, address);
     }
 
+    // 1. Immediately persist to SharedPreferences so it never vanishes
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'saved_addresses_${address.userId.isNotEmpty ? address.userId : "default"}';
+      final existing = prefs.getStringList(key) ?? prefs.getStringList('saved_addresses_all') ?? [];
+      final List<Map<String, dynamic>> decodedList = [];
+      for (final str in existing) {
+        try {
+          decodedList.add(Map<String, dynamic>.from(jsonDecode(str) as Map));
+        } catch (_) {}
+      }
+      final existingIndex = decodedList.indexWhere((m) => m['id'] == address.id || m['address_line1'] == address.addressLine1);
+      if (existingIndex >= 0) {
+        decodedList[existingIndex] = address.toJson();
+      } else {
+        decodedList.insert(0, address.toJson());
+      }
+      final encoded = decodedList.map((m) => jsonEncode(m)).toList();
+      await prefs.setStringList(key, encoded);
+      await prefs.setStringList('saved_addresses_all', encoded);
+      await prefs.setString('default_delivery_address_${address.userId.isNotEmpty ? address.userId : "default"}', jsonEncode(address.toJson()));
+      await prefs.setString('default_delivery_address', jsonEncode(address.toJson()));
+    } catch (e) {
+      debugPrint('[OrderRepository] Local save error: $e');
+    }
+
+    // 2. Also attempt cloud sync if Supabase table is available
     final client = SupabaseService.client;
     if (client != null && address.userId.isNotEmpty && !address.userId.startsWith('guest') && address.userId.length >= 32) {
       try {
@@ -119,12 +194,15 @@ class OrderRepository {
           'phone': address.phone,
           'address_line1': address.addressLine1,
           'address_line2': address.addressLine2,
+          'landmark': address.landmark,
           'city': address.city,
           'state': address.state,
           'pincode': address.pincode,
           'is_default': address.isDefault,
         });
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[OrderRepository] Cloud address sync warning: $e');
+      }
     }
     return address;
   }

@@ -28,12 +28,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   void _showAddAddressSheet(BuildContext context, String userId) {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final line1Ctrl = TextEditingController();
-    final line2Ctrl = TextEditingController();
-    final landmarkCtrl = TextEditingController();
-    final pinCtrl = TextEditingController();
+    final current = ref.read(orderProvider).selectedAddress;
+    final user = ref.read(authProvider).user;
+    final nameCtrl = TextEditingController(text: (current?.fullName != null && current!.fullName.isNotEmpty) ? current.fullName : (user?.fullName ?? ''));
+    final phoneCtrl = TextEditingController(text: (current?.phone != null && current!.phone.isNotEmpty) ? current.phone : (user?.phone ?? ''));
+    final line1Ctrl = TextEditingController(text: current?.addressLine1 ?? '');
+    final line2Ctrl = TextEditingController(text: current?.addressLine2 ?? '');
+    final landmarkCtrl = TextEditingController(text: current?.landmark ?? '');
+    final pinCtrl = TextEditingController(text: (current?.pincode != null && current!.pincode.isNotEmpty) ? current.pincode : '444601');
 
     showModalBottomSheet(
       context: context,

@@ -465,4 +465,92 @@ class SellerRepository {
       return 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=600';
     }
   }
+
+  /// Fetches real orders for this boutique shop from Supabase
+  Future<List<Map<String, dynamic>>> getOrders(String shopId) async {
+    final client = SupabaseService.client;
+    if (client == null || shopId.isEmpty || shopId.startsWith('mock')) {
+      return [];
+    }
+    try {
+      final res = await client
+          .from('orders')
+          .select('id, order_number, status, subtotal, total_amount, seller_payout_amount, payment_status, created_at')
+          .eq('shop_id', shopId)
+          .order('created_at', ascending: false);
+      if (res is List) {
+        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('[SellerRepository] Error fetching real orders: $e');
+      return [];
+    }
+  }
+
+  /// Fetches real bargains received by this seller or for shop products
+  Future<List<Map<String, dynamic>>> getBargains(String sellerId, List<String> productIds) async {
+    final client = SupabaseService.client;
+    if (client == null) return [];
+    try {
+      if (sellerId.isNotEmpty && !sellerId.startsWith('mock')) {
+        final res = await client
+            .from('bargains')
+            .select('id, product_id, seller_id, status, agreed_price, current_offer, created_at')
+            .eq('seller_id', sellerId)
+            .order('created_at', ascending: false);
+        if (res is List && res.isNotEmpty) {
+          return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      if (productIds.isNotEmpty) {
+        final res = await client
+            .from('bargains')
+            .select('id, product_id, seller_id, status, agreed_price, current_offer, created_at')
+            .inFilter('product_id', productIds)
+            .order('created_at', ascending: false);
+        if (res is List) {
+          return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('[SellerRepository] Error fetching real bargains: $e');
+      return [];
+    }
+  }
+
+  /// Fetches real wishlist count for products belonging to this shop
+  Future<int> getWishlistCount(List<String> productIds) async {
+    final client = SupabaseService.client;
+    if (client == null || productIds.isEmpty) return 0;
+    int count = 0;
+    try {
+      final res1 = await client.from('wishlists').select('id').inFilter('product_id', productIds);
+      if (res1 is List) count += res1.length;
+    } catch (_) {}
+    try {
+      final res2 = await client.from('wishlist_items').select('id').inFilter('product_id', productIds);
+      if (res2 is List) count += res2.length;
+    } catch (_) {}
+    return count;
+  }
+
+  /// Fetches real store views from advertisement impressions / clicks for this seller
+  Future<int> getStoreViewsCount(String sellerId) async {
+    final client = SupabaseService.client;
+    if (client == null || sellerId.isEmpty || sellerId.startsWith('mock')) return 0;
+    int views = 0;
+    try {
+      final res = await client.from('advertisements').select('impressions, clicks').eq('seller_id', sellerId);
+      if (res is List) {
+        for (final ad in res) {
+          final m = ad as Map;
+          views += ((m['impressions'] as num?)?.toInt() ?? 0) + ((m['clicks'] as num?)?.toInt() ?? 0);
+        }
+      }
+    } catch (_) {}
+    return views;
+  }
 }
+

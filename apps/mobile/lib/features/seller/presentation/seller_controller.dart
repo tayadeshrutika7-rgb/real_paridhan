@@ -18,6 +18,10 @@ class SellerState {
   final bool isLoading;
   final ShopModel? shop;
   final List<ProductModel> products;
+  final List<Map<String, dynamic>> orders;
+  final List<Map<String, dynamic>> bargains;
+  final int wishlistSavesCount;
+  final int storeViewsCount;
   final String? errorMessage;
   final String? successMessage;
 
@@ -25,6 +29,10 @@ class SellerState {
     this.isLoading = false,
     this.shop,
     this.products = const [],
+    this.orders = const [],
+    this.bargains = const [],
+    this.wishlistSavesCount = 0,
+    this.storeViewsCount = 0,
     this.errorMessage,
     this.successMessage,
   });
@@ -33,6 +41,10 @@ class SellerState {
     bool? isLoading,
     ShopModel? shop,
     List<ProductModel>? products,
+    List<Map<String, dynamic>>? orders,
+    List<Map<String, dynamic>>? bargains,
+    int? wishlistSavesCount,
+    int? storeViewsCount,
     String? errorMessage,
     String? successMessage,
     bool clearError = false,
@@ -42,6 +54,10 @@ class SellerState {
       isLoading: isLoading ?? this.isLoading,
       shop: shop ?? this.shop,
       products: products ?? this.products,
+      orders: orders ?? this.orders,
+      bargains: bargains ?? this.bargains,
+      wishlistSavesCount: wishlistSavesCount ?? this.wishlistSavesCount,
+      storeViewsCount: storeViewsCount ?? this.storeViewsCount,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       successMessage: clearSuccess ? null : (successMessage ?? this.successMessage),
     );
@@ -148,13 +164,35 @@ class SellerController extends Notifier<SellerState> {
       }
 
       List<ProductModel> products = [];
+      List<Map<String, dynamic>> orders = [];
+      List<Map<String, dynamic>> bargains = [];
+      int wishlistCount = 0;
+      int storeViews = 0;
+
       if (shop != null) {
         products = await _repository.getProducts(shop.id);
+        final productIds = products.map((p) => p.id).toList();
+
+        final results = await Future.wait([
+          _repository.getOrders(shop.id),
+          _repository.getBargains(sellerId.isNotEmpty ? sellerId : shop.sellerId, productIds),
+          _repository.getWishlistCount(productIds),
+          _repository.getStoreViewsCount(sellerId.isNotEmpty ? sellerId : shop.sellerId),
+        ]);
+
+        orders = results[0] as List<Map<String, dynamic>>;
+        bargains = results[1] as List<Map<String, dynamic>>;
+        wishlistCount = results[2] as int;
+        storeViews = results[3] as int;
       }
       state = state.copyWith(
         isLoading: false,
         shop: shop,
         products: products,
+        orders: orders,
+        bargains: bargains,
+        wishlistSavesCount: wishlistCount,
+        storeViewsCount: storeViews,
       );
     } catch (e) {
       state = state.copyWith(

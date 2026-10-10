@@ -1638,24 +1638,85 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(item.shopName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.shopName,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          if (item.businessType != null && item.businessType!.isNotEmpty)
+                            Container(
+                              margin: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                item.businessType!.replaceAll('_', ' ').toUpperCase(),
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(6)),
-                      child: Text(item.status.label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                      decoration: BoxDecoration(
+                        color: item.status == KycStatus.approved
+                            ? const Color(0xFFDCFCE7)
+                            : (item.status == KycStatus.rejected
+                                ? const Color(0xFFFEE2E2)
+                                : const Color(0xFFFEF3C7)),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        item.status.label,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: item.status == KycStatus.approved
+                              ? const Color(0xFF166534)
+                              : (item.status == KycStatus.rejected
+                                  ? const Color(0xFF991B1B)
+                                  : const Color(0xFF92400E)),
+                        ),
+                      ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'Owner: ${item.ownerName} • Phone: ${item.ownerPhone} • Email: ${item.ownerEmail}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Store Address: ${item.address}${item.landmark != null && item.landmark!.isNotEmpty ? " (Near ${item.landmark})" : ""}, ${item.cityZone}${item.pincode != null && item.pincode!.isNotEmpty ? " - ${item.pincode}" : ""}',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
                 const SizedBox(height: 4),
-                Text('Owner: ${item.ownerName} • Phone: ${item.ownerPhone} • Email: ${item.ownerEmail}', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                Text('Location: ${item.address} (${item.cityZone})', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                Text('GSTIN: ${item.gstin}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                Row(
+                  children: [
+                    Text('GSTIN: ${item.gstin}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: AppTheme.primaryColor)),
+                    const SizedBox(width: 14),
+                    Text('Trade License: ${item.businessRegNumber}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+                  ],
+                ),
                 const SizedBox(height: 10),
 
-                // Masked Sensitive Details Block
+                // Financial & Identity Details Block (Unmasked Full Numbers - NO STARS)
                 Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE5E7EB))),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1675,11 +1736,140 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                           ),
                         ],
                       ),
-                      Text('PAN: ${isUnmasked ? item.panNumber : item.maskedPan} | Aadhaar: ${isUnmasked ? item.aadhaarNumber : item.maskedAadhaar}', style: const TextStyle(fontSize: 11)),
-                      Text('Bank: ${item.bankName} • A/C: ${isUnmasked ? item.bankAccountNumber : item.maskedBankAccount} • IFSC: ${item.bankIfsc}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'PAN: ${item.panNumber}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              'Aadhaar: ${item.aadhaarNumber}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Bank: ${item.bankName}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'A/C: ${item.bankAccountNumber}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: AppTheme.primaryColor),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              'IFSC: ${item.bankIfsc}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, fontFamily: 'monospace', color: AppTheme.textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (item.bankAccountName != null && item.bankAccountName!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Account Holder: ${item.bankAccountName}',
+                          style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                        ),
+                      ],
                     ],
                   ),
                 ),
+
+                // Attached KYC Documents
+                if (item.submittedDocuments.isNotEmpty || (item.licenseDocumentUrl != null && item.licenseDocumentUrl!.isNotEmpty)) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.file_present_rounded, size: 14, color: AppTheme.successColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Attached Proofs: ${item.submittedDocuments.isNotEmpty ? item.submittedDocuments.length : 1} Document on file',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF166534)),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () {
+                            final docUrl = item.submittedDocuments.isNotEmpty
+                                ? item.submittedDocuments.first
+                                : (item.licenseDocumentUrl ?? '');
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text('KYC Proof: ${item.shopName}'),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Document URL:\n$docUrl', style: const TextStyle(fontSize: 12)),
+                                    const SizedBox(height: 12),
+                                    if (docUrl.startsWith('http'))
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.network(
+                                          docUrl,
+                                          height: 180,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => const Text('Image preview unavailable.'),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+                                ],
+                              ),
+                            );
+                          },
+                          child: const Text('Inspect Proof', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (item.rejectionReason != null && item.rejectionReason!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 14, color: AppTheme.errorColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Rejection Reason: ${item.rejectionReason}',
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF991B1B)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 14),
                 Row(

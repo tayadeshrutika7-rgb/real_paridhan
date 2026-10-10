@@ -33,9 +33,7 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = ref.read(authProvider).user;
-      if (user != null) {
-        ref.read(orderProvider.notifier).loadAddresses(user.id);
-      }
+      ref.read(orderProvider.notifier).loadAddresses(user?.id ?? '');
     });
   }
 
@@ -359,10 +357,15 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
   }
 
   void _showAddAddressSheet(BuildContext context, String userId) {
-    final line1Ctrl = TextEditingController();
-    final line2Ctrl = TextEditingController();
-    final cityCtrl = TextEditingController(text: 'Amravati');
-    final postalCtrl = TextEditingController(text: '444601');
+    final current = ref.read(orderProvider).selectedAddress;
+    final line1Ctrl = TextEditingController(text: current?.addressLine1 ?? '');
+    final line2Ctrl = TextEditingController(text: current?.addressLine2 ?? '');
+    final cityCtrl = TextEditingController(
+      text: (current?.city != null && current!.city.isNotEmpty) ? current.city : 'Amravati',
+    );
+    final postalCtrl = TextEditingController(
+      text: (current?.pincode != null && current!.pincode.isNotEmpty) ? current.pincode : '444601',
+    );
 
     showModalBottomSheet(
       context: context,
@@ -447,15 +450,16 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
                     return;
                   }
                   final user = ref.read(authProvider).user;
+                  final effectiveUserId = userId.isNotEmpty ? userId : (user?.id ?? 'default');
                   final newAddr = AddressModel(
-                    id: 'addr-${DateTime.now().millisecondsSinceEpoch}',
-                    userId: userId,
+                    id: current?.id ?? 'addr-${DateTime.now().millisecondsSinceEpoch}',
+                    userId: effectiveUserId,
                     fullName: user?.fullName ?? 'Consumer',
                     phone: user?.phone ?? '+91 98290 11111',
                     addressLine1: line1Ctrl.text.trim(),
                     addressLine2: line2Ctrl.text.trim().isNotEmpty ? line2Ctrl.text.trim() : null,
                     city: cityCtrl.text.trim(),
-                    state: 'Maharashtra',
+                    state: current?.state ?? 'Maharashtra',
                     pincode: postalCtrl.text.trim(),
                     isDefault: true,
                   );
@@ -837,15 +841,13 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
                     icon: Icons.location_on_outlined,
                     iconColor: Colors.teal,
                     title: 'Saved Delivery Locations',
-                    subtitle: orderState.selectedAddress != null
-                        ? '${orderState.selectedAddress!.city} (${orderState.selectedAddress!.pincode})'
-                        : 'Add home or work delivery address in Amravati',
+                    subtitle: orderState.selectedAddress != null && orderState.selectedAddress!.addressLine1.isNotEmpty
+                        ? '${orderState.selectedAddress!.addressLine1}, ${orderState.selectedAddress!.city} (${orderState.selectedAddress!.pincode})'
+                        : (orderState.selectedAddress != null
+                            ? '${orderState.selectedAddress!.city} (${orderState.selectedAddress!.pincode})'
+                            : 'Add home or work delivery address in Amravati'),
                     onTap: () {
-                      if (user != null) {
-                        _showAddAddressSheet(context, user.id);
-                      } else {
-                        context.push('/login');
-                      }
+                      _showAddAddressSheet(context, user?.id ?? '');
                     },
                   ),
                 ]),

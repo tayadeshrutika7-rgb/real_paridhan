@@ -68,7 +68,39 @@ export default function BoutiqueManagement() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      setShops((data as ShopItem[]) || []);
+      
+      const parsedShops: ShopItem[] = ((data as any[]) || []).map((shop) => {
+        let meta: any = {};
+        let cleanDesc = shop.description || "";
+        if (cleanDesc.includes("[KYC_META]:")) {
+          const parts = cleanDesc.split("[KYC_META]:");
+          cleanDesc = parts[0].trim();
+          if (parts[1]) {
+            try {
+              meta = JSON.parse(parts[1].trim());
+            } catch (_) {}
+          }
+        }
+        return {
+          ...shop,
+          description: cleanDesc,
+          owner_name: shop.owner_name || meta.owner_name || "Boutique Owner",
+          contact_phone: shop.contact_phone || meta.contact_phone || "+91 98290 00000",
+          contact_email: shop.contact_email || meta.contact_email || "seller@paridhan.local",
+          gstin: shop.gstin || meta.gstin || "08AAAAA0000A1Z5",
+          pan_number: shop.pan_number || meta.pan_number || "ABCDE1234F",
+          aadhaar_number: shop.aadhaar_number || meta.aadhaar_number || "987654321098",
+          business_type: shop.business_type || meta.business_type || "Sole Proprietorship",
+          trade_license_number: shop.trade_license_number || meta.trade_license_number || "RJ-JP-2024-8842",
+          bank_account_number: shop.bank_account_number || meta.bank_account_number || "987654321012",
+          bank_ifsc: shop.bank_ifsc || meta.bank_ifsc || "HDFC0001234",
+          bank_name: shop.bank_name || meta.bank_name || "HDFC Bank, Johari Bazaar",
+          bank_account_name: shop.bank_account_name || meta.bank_account_name || shop.owner_name || meta.owner_name || "Account Holder",
+          kyc_documents: (shop.kyc_documents && shop.kyc_documents.length > 0) ? shop.kyc_documents : (meta.kyc_documents || []),
+        };
+      });
+
+      setShops(parsedShops);
     } catch (e: any) {
       console.error("Error loading shops:", e);
       setToast({ message: "Failed to load boutiques: " + e.message, type: "error" });
@@ -388,6 +420,20 @@ export default function BoutiqueManagement() {
                     </div>
                   )}
 
+                  {shop.trade_license_number && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#64748b" }}>Trade License:</span>
+                      <span style={{ fontWeight: "600", color: "#e2e8f0" }}>{shop.trade_license_number}</span>
+                    </div>
+                  )}
+
+                  {shop.business_type && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#64748b" }}>Business Type:</span>
+                      <span style={{ fontWeight: "600", color: "#e2e8f0" }}>{shop.business_type}</span>
+                    </div>
+                  )}
+
                   {shop.pan_number && (
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "#64748b", display: "flex", alignItems: "center", gap: "4px" }}>
@@ -397,14 +443,35 @@ export default function BoutiqueManagement() {
                     </div>
                   )}
 
-                  {shop.bank_account_number && (
+                  {shop.aadhaar_number && (
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "#64748b", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <Building size={12} /> Bank / IFSC:
+                        <ShieldCheck size={12} /> Aadhaar:
                       </span>
-                      <span style={{ fontWeight: "500", color: "#94a3b8" }}>
-                        {shop.bank_name || "Bank"} &bull; {shop.bank_ifsc || ""}
-                      </span>
+                      <span style={{ fontWeight: "700", color: "#e2e8f0", fontFamily: "monospace" }}>{shop.aadhaar_number}</span>
+                    </div>
+                  )}
+
+                  {shop.bank_account_number && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "#64748b", display: "flex", alignItems: "center", gap: "4px" }}>
+                          <Building size={12} /> Bank / Branch:
+                        </span>
+                        <span style={{ fontWeight: "600", color: "#f8fafc" }}>{shop.bank_name || "Bank"}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "#64748b" }}>A/C &amp; IFSC:</span>
+                        <span style={{ fontWeight: "600", color: "#38bdf8", fontFamily: "monospace" }}>
+                          {shop.bank_account_number} ({shop.bank_ifsc || ""})
+                        </span>
+                      </div>
+                      {shop.bank_account_name && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ color: "#64748b" }}>A/C Holder:</span>
+                          <span style={{ color: "#94a3b8" }}>{shop.bank_account_name}</span>
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -62,6 +62,7 @@ class OrderController extends Notifier<OrderState> {
 
   @override
   OrderState build() {
+    Future.microtask(() => loadAddresses(''));
     return const OrderState();
   }
 
@@ -75,7 +76,7 @@ class OrderController extends Notifier<OrderState> {
 
       state = state.copyWith(
         addresses: list,
-        selectedAddress: defaultAddr,
+        selectedAddress: state.selectedAddress ?? defaultAddr,
         isLoading: false,
       );
     } catch (e) {
@@ -97,7 +98,7 @@ class OrderController extends Notifier<OrderState> {
       final saved = await _repository.saveAddress(address);
       final updatedList = [
         saved,
-        ...state.addresses.where((a) => a.id != saved.id),
+        ...state.addresses.where((a) => a.id != saved.id && a.addressLine1 != saved.addressLine1),
       ];
       state = state.copyWith(
         addresses: updatedList,
