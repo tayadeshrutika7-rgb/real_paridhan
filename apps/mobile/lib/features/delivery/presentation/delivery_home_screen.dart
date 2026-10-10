@@ -114,6 +114,11 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
           ),
           const RoleNotificationBadge(role: UserRole.delivery),
           IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Rider Profile & KYC',
+            onPressed: () => context.push('/delivery/profile'),
+          ),
+          IconButton(
             icon: const Icon(Icons.account_balance_wallet_outlined),
             tooltip: 'Earnings & COD',
             onPressed: () => context.push('/delivery/earnings'),
@@ -134,47 +139,57 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // KYC Verification Status Card
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: deliveryState.isVerified ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: deliveryState.isVerified ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+              InkWell(
+                onTap: () => context.push('/delivery/profile'),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: deliveryState.isVerified ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: deliveryState.isVerified ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      deliveryState.isVerified ? Icons.verified_rounded : Icons.pending_actions_rounded,
-                      color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
-                      size: 26,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            deliveryState.isVerified ? 'Partner KYC Verified & Active' : 'KYC Verification Pending Review',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            deliveryState.isVerified
-                                ? 'Your driving license and vehicle registration are verified for hyperlocal order delivery.'
-                                : 'Super Admin will verify your driving license and vehicle registration before live trips.',
-                            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                          ),
-                        ],
+                  child: Row(
+                    children: [
+                      Icon(
+                        deliveryState.isVerified ? Icons.verified_rounded : Icons.pending_actions_rounded,
+                        color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
+                        size: 26,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              deliveryState.isVerified ? 'Partner KYC Verified & Active' : 'KYC Verification Pending Review',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              deliveryState.isVerified
+                                  ? 'Your bank, UPI, and vehicle credentials are approved. Tapping here opens your full profile.'
+                                  : 'Super Admin must verify your bank, UPI, Aadhaar, and driving license before live orders.',
+                              style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.arrow_forward_ios,
+                        size: 14,
+                        color: deliveryState.isVerified ? AppTheme.successColor : const Color(0xFFB45309),
+                      ),
+                    ],
+                  ),
                 ),
               ),
 
@@ -242,6 +257,16 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
                       value: isOnline,
                       activeThumbColor: AppTheme.successColor,
                       onChanged: (val) {
+                        if (!deliveryState.isVerified && val) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Cannot go online: Profile pending Super Admin KYC approval. View / Edit Profile.'),
+                              backgroundColor: AppTheme.warningColor,
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                          return;
+                        }
                         ref.read(deliveryProvider.notifier).toggleDuty(val);
                       },
                     ),
@@ -387,6 +412,101 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
                 ),
               ),
 
+              // Monthly Salary Status Card (Credited vs Pending)
+              InkWell(
+                onTap: () => context.push('/delivery/earnings'),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  margin: const EdgeInsets.only(top: 14),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: earnings.isSalaryCredited ? const Color(0xFFF0FDF4) : const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: earnings.isSalaryCredited ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                earnings.isSalaryCredited ? Icons.paid_rounded : Icons.pending_actions_rounded,
+                                color: earnings.isSalaryCredited ? AppTheme.successColor : const Color(0xFFD97706),
+                                size: 22,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${earnings.monthlySalaryMonth} Salary',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: earnings.isSalaryCredited ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: earnings.isSalaryCredited ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+                              ),
+                            ),
+                            child: Text(
+                              earnings.isSalaryCredited ? 'CREDITED 💰' : 'PENDING ⏳',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: earnings.isSalaryCredited ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                earnings.isSalaryCredited ? 'Disbursed via ${earnings.monthlySalaryMethod ?? "Bank Transfer"}' : 'Accrued Per-Order Trip Earnings',
+                                style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '₹${earnings.monthlySalaryAmount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: earnings.isSalaryCredited ? AppTheme.successColor : const Color(0xFF92400E),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (earnings.isSalaryCredited && earnings.monthlySalaryRef != null)
+                            Text(
+                              'Ref: ${earnings.monthlySalaryRef}',
+                              style: const TextStyle(fontSize: 11, color: AppTheme.textMuted, fontWeight: FontWeight.w500),
+                            )
+                          else
+                            const Text(
+                              'View Details &rarr;',
+                              style: TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 24),
 
               // 4. Dispatch Radar: Incoming Order Requests
@@ -410,7 +530,47 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
               ),
               const SizedBox(height: 12),
 
-              if (!isOnline)
+              if (!deliveryState.isVerified)
+                Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: const BorderSide(color: Color(0xFFFDE68A)),
+                  ),
+                  color: const Color(0xFFFFFBEB),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          const Icon(Icons.lock_clock_outlined, size: 48, color: Color(0xFFD97706)),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Orders Locked — Admin KYC Verification Required',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF92400E)),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Without Super Admin acceptance, delivery partners cannot receive or accept orders. Please ensure your Bank Details, UPI ID, and Aadhaar proofs are submitted.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Color(0xFF78350F), fontSize: 13),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () => context.push('/delivery/profile'),
+                            icon: const Icon(Icons.edit_document),
+                            label: const Text('View / Upload KYC Profile'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFD97706),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else if (!isOnline)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(24),

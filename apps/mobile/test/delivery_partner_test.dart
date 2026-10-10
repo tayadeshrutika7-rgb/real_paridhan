@@ -12,10 +12,13 @@ import 'package:paridhan_mobile/features/delivery/domain/delivery_task_model.dar
 import 'package:paridhan_mobile/features/delivery/domain/delivery_earnings_model.dart';
 import 'package:paridhan_mobile/features/delivery/domain/delivery_route_batch_model.dart';
 import 'package:paridhan_mobile/features/delivery/presentation/delivery_earnings_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'test_utils.dart';
 
 void main() {
   setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
     HttpOverrides.global = TestHttpOverrides();
   });
 
@@ -293,7 +296,7 @@ void main() {
     });
 
     testWidgets('Renders Delivery Partner Radar and Overview', (WidgetTester tester) async {
-      tester.view.physicalSize = const Size(1200, 1600);
+      tester.view.physicalSize = const Size(1200, 2600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
 

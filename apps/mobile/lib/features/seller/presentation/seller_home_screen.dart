@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/notifications/presentation/role_notification_badge.dart';
 import '../../../core/theme/app_theme.dart';
@@ -177,6 +178,48 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
                   ),
                 ),
               ),
+              if (shop?.isVerified != true) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFF59E0B)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Boutique KYC Pending Admin Approval',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                            ),
+                            const SizedBox(height: 3),
+                            const Text(
+                              'Until Jaipur Super Admin reviews and accepts your boutique verification, product additions and live catalog publishing remain locked.',
+                              style: TextStyle(fontSize: 11, color: Color(0xFF78350F)),
+                            ),
+                            const SizedBox(height: 8),
+                            InkWell(
+                              onTap: () => context.push('/seller/shop'),
+                              child: const Text(
+                                'View / Update Submitted KYC Documents →',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFB45309), decoration: TextDecoration.underline),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
 
             // Performance Section with Timeframe Filter Switcher
@@ -271,7 +314,7 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
                   child: _StatCard(
                     title: 'Pending Payout',
                     value: metrics.pendingPayout,
-                    subtext: 'Razorpay Route 90%',
+                    subtext: '${metrics.pendingPayoutOrdersCount} orders waiting (97%)',
                     icon: Icons.account_balance_wallet_outlined,
                     color: AppTheme.warningColor,
                   ),
@@ -288,16 +331,48 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
               tileColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: AppTheme.borderSubtle),
+                side: BorderSide(
+                  color: shop?.isVerified == true ? AppTheme.borderSubtle : const Color(0xFFF59E0B),
+                  width: shop?.isVerified == true ? 1.0 : 1.5,
+                ),
               ),
-              leading: const CircleAvatar(
-                backgroundColor: AppTheme.accentLight,
-                child: Icon(Icons.add_photo_alternate, color: AppTheme.accentColor),
+              leading: CircleAvatar(
+                backgroundColor: shop?.isVerified == true ? AppTheme.accentLight : const Color(0xFFFEF3C7),
+                child: Icon(
+                  shop?.isVerified == true ? Icons.add_photo_alternate : Icons.lock_outline,
+                  color: shop?.isVerified == true ? AppTheme.accentColor : const Color(0xFFD97706),
+                ),
               ),
-              title: const Text('Add New Garment / Product'),
-              subtitle: const Text('With client-side image compression & bargaining floor price'),
+              title: Row(
+                children: [
+                  const Text('Add New Garment / Product'),
+                  if (shop?.isVerified != true) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: const Color(0xFFF59E0B)),
+                      ),
+                      child: const Text('Approval Required', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                    ),
+                  ],
+                ],
+              ),
+              subtitle: Text(
+                shop?.isVerified == true
+                    ? 'With client-side image compression & bargaining floor price'
+                    : '🔒 Locked: Admin approval required before adding products to catalog',
+              ),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => context.push('/seller/add-product'),
+              onTap: () {
+                if (shop?.isVerified != true) {
+                  _showKycLockedDialog(context);
+                  return;
+                }
+                context.push('/seller/add-product');
+              },
             ),
             const SizedBox(height: 12),
             ListTile(
@@ -383,6 +458,11 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
                 );
               },
             ),
+
+            const SizedBox(height: 24),
+
+            // Boutique Settlements & Payback History
+            _buildPaybackHistorySection(context, sellerState.orders, metrics),
 
             const SizedBox(height: 24),
 
@@ -996,6 +1076,9 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
     int deliveredCount = 0;
     double grossSalesTotal = 0.0;
     double pendingPayoutTotal = 0.0;
+    int pendingPayoutOrdersCount = 0;
+    double creditedPayoutTotal = 0.0;
+    int creditedPayoutOrdersCount = 0;
 
     for (final o in orders) {
       final status = (o['status'] ?? '').toString().toLowerCase();
@@ -1010,6 +1093,15 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
           0.0;
       final comm = (o['commission_amount'] as num?)?.toDouble() ?? (subtotal * 0.03);
       final payout = (o['seller_payout_amount'] as num?)?.toDouble() ?? (subtotal - comm);
+      final payoutStatus = (o['seller_payout_status'] ?? '').toString().toLowerCase();
+
+      if (payoutStatus == 'paid') {
+        creditedPayoutOrdersCount++;
+        creditedPayoutTotal += payout;
+      } else {
+        pendingPayoutOrdersCount++;
+        pendingPayoutTotal += payout;
+      }
 
       if (status == 'placed' || status == 'confirmed') {
         pendingPackingCount++;
@@ -1024,10 +1116,6 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
         // Realized sales: only successfully delivered orders!
         if (status == 'delivered') {
           grossSalesTotal += subtotal;
-        }
-        // Pending payout: orders currently in fulfillment pipeline
-        if (status == 'placed' || status == 'confirmed' || status == 'packed' || status == 'out_for_delivery') {
-          pendingPayoutTotal += payout;
         }
       }
     }
@@ -1070,6 +1158,9 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
       pendingOrders: pendingPackingCount,
       ordersStatus: ordersStatus,
       pendingPayout: formattedPayout,
+      pendingPayoutOrdersCount: pendingPayoutOrdersCount,
+      creditedPayoutTotal: creditedPayoutTotal,
+      creditedPayoutOrdersCount: creditedPayoutOrdersCount,
       storeViews: storeViews,
       wishlistSaves: wishlistSaves,
       bargainsReceived: bargainsReceived,
@@ -1081,12 +1172,7 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
 
   List<PieSliceData> _buildInventorySlices(Map<String, List<ProductModel>> categoryMap) {
     if (categoryMap.isEmpty) {
-      return [
-        const PieSliceData(label: 'Saree', value: 24, color: Color(0xFFEC4899), detail: '24 units'),
-        const PieSliceData(label: 'Lehenga', value: 12, color: Color(0xFF8B5CF6), detail: '12 units'),
-        const PieSliceData(label: 'Kurti', value: 18, color: Color(0xFF3B82F6), detail: '18 units'),
-        const PieSliceData(label: 'Sherwani', value: 8, color: Color(0xFFF59E0B), detail: '8 units'),
-      ];
+      return const [];
     }
 
     final List<PieSliceData> slices = [];
@@ -1107,18 +1193,13 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
   }
 
   List<PieSliceData> _buildRevenueSlices(Map<String, List<ProductModel>> categoryMap, PerformanceTimeframe timeframe) {
+    if (categoryMap.isEmpty) {
+      return const [];
+    }
+
     final double multiplier = timeframe == PerformanceTimeframe.today
         ? 1.0
         : (timeframe == PerformanceTimeframe.month ? 30.0 : 365.0);
-
-    if (categoryMap.isEmpty) {
-      return [
-        PieSliceData(label: 'Saree', value: 45 * multiplier, color: const Color(0xFFEC4899)),
-        PieSliceData(label: 'Lehenga', value: 30 * multiplier, color: const Color(0xFF8B5CF6)),
-        PieSliceData(label: 'Kurti', value: 15 * multiplier, color: const Color(0xFF3B82F6)),
-        PieSliceData(label: 'Sherwani', value: 10 * multiplier, color: const Color(0xFFF59E0B)),
-      ];
-    }
 
     final List<PieSliceData> slices = [];
     categoryMap.forEach((category, list) {
@@ -1165,6 +1246,346 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
         return const Color(0xFF14B8A6);
     }
   }
+
+  void _showKycLockedDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_person_outlined, color: Color(0xFFD97706), size: 24),
+            SizedBox(width: 10),
+            Text('Admin Approval Required', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Your boutique KYC is currently pending admin verification. Sellers can only add and publish products after the Super Admin accepts their KYC.\n\nPlease wait for admin verification or review your uploaded documents.',
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Dismiss'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.push('/seller/shop');
+            },
+            icon: const Icon(Icons.description, size: 14),
+            label: const Text('Review KYC Documents'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaybackHistorySection(
+    BuildContext context,
+    List<Map<String, dynamic>> orders,
+    _TimeframeMetrics metrics,
+  ) {
+    final validOrders = orders.where((o) {
+      final st = (o['status'] ?? '').toString().toLowerCase();
+      return st != 'cancelled' && st != 'returned';
+    }).toList();
+
+    final df = DateFormat('dd MMM yyyy, hh:mm a');
+
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppTheme.borderSubtle),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.successColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.account_balance_wallet, color: AppTheme.successColor, size: 22),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Boutique Settlements & Payback History',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      Text(
+                        'Live payout ledger: 3% platform commission, 97% net payable to your bank',
+                        style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Payback Summary Cards (Pending vs Credited)
+            Row(
+              children: [
+                // Pending Disbursals
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.hourglass_top_rounded, size: 14, color: Color(0xFFD97706)),
+                            SizedBox(width: 6),
+                            Text('Pending Paybacks', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E))),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          metrics.pendingPayout,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${metrics.pendingPayoutOrdersCount} orders waiting',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF78350F)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Settled & Credited
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, size: 14, color: Color(0xFF059669)),
+                            SizedBox(width: 6),
+                            Text('Credited & Settled', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF065F46))),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '₹${metrics.creditedPayoutTotal.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${metrics.creditedPayoutOrdersCount} orders paid',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF064E3B)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+
+            // Itemized Transaction Records
+            if (validOrders.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(20),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9FAFB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(Icons.receipt_long_outlined, size: 36, color: Color(0xFF9CA3AF)),
+                    SizedBox(height: 8),
+                    Text(
+                      'No order settlements or paybacks recorded yet',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF4B5563)),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'As soon as customer orders are placed and fulfilled, itemized 97% payouts and transaction UTRs will appear here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: validOrders.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (ctx, i) {
+                  final o = validOrders[i];
+                  final isPaid = (o['seller_payout_status'] ?? '').toString().toLowerCase() == 'paid';
+                  final subtotal = (o['subtotal'] as num?)?.toDouble() ??
+                      (o['total_amount'] as num?)?.toDouble() ??
+                      (o['total'] as num?)?.toDouble() ??
+                      0.0;
+                  final comm = (o['commission_amount'] as num?)?.toDouble() ?? (subtotal * 0.03);
+                  final payout = (o['seller_payout_amount'] as num?)?.toDouble() ?? (subtotal - comm);
+                  final orderNum = o['order_number']?.toString() ??
+                      ((o['id']?.toString().length ?? 0) > 8 ? o['id'].toString().substring(0, 8) : (o['id'] ?? 'ORD-$i'));
+
+                  DateTime? orderDate;
+                  try {
+                    if (o['created_at'] != null) {
+                      orderDate = DateTime.parse(o['created_at'].toString());
+                    }
+                  } catch (_) {}
+
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF9FAFB),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isPaid ? const Color(0xFFA7F3D0) : const Color(0xFFE5E7EB),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  '#$orderNum',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.textPrimary),
+                                ),
+                                const SizedBox(width: 8),
+                                if (orderDate != null)
+                                  Text(
+                                    df.format(orderDate),
+                                    style: const TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                                  ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isPaid ? Icons.check_circle : Icons.schedule,
+                                    size: 11,
+                                    color: isPaid ? const Color(0xFF166534) : const Color(0xFF92400E),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isPaid ? 'CREDITED & SETTLED' : 'PENDING DISBURSAL',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: isPaid ? const Color(0xFF166534) : const Color(0xFF92400E),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Divider(height: 1),
+                        const SizedBox(height: 8),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Subtotal (GMV): ₹${subtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                Text('3% Platform Fee: -₹${comm.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, color: Color(0xFF991B1B))),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '₹${payout.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: isPaid ? const Color(0xFF166534) : AppTheme.primaryColor,
+                                  ),
+                                ),
+                                const Text('97% Net Payback', style: TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+                              ],
+                            ),
+                          ],
+                        ),
+
+                        if (isPaid && o['seller_payout_ref'] != null) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDCFCE7).withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.verified, size: 12, color: Color(0xFF166534)),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Disbursed via ${o['seller_payment_method'] ?? "Razorpay Route"} (UTR: ${o['seller_payout_ref']})',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF166534)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _TimeframeMetrics {
@@ -1173,6 +1594,9 @@ class _TimeframeMetrics {
   final int pendingOrders;
   final String ordersStatus;
   final String pendingPayout;
+  final int pendingPayoutOrdersCount;
+  final double creditedPayoutTotal;
+  final int creditedPayoutOrdersCount;
   final int storeViews;
   final int wishlistSaves;
   final int bargainsReceived;
@@ -1186,6 +1610,9 @@ class _TimeframeMetrics {
     required this.pendingOrders,
     required this.ordersStatus,
     required this.pendingPayout,
+    required this.pendingPayoutOrdersCount,
+    required this.creditedPayoutTotal,
+    required this.creditedPayoutOrdersCount,
     required this.storeViews,
     required this.wishlistSaves,
     required this.bargainsReceived,

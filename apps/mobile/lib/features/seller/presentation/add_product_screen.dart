@@ -575,6 +575,18 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   }
 
   Future<void> _handlePublish() async {
+    final sellerState = ref.read(sellerProvider);
+    if (sellerState.shop?.isVerified != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Boutique KYC must be approved by Jaipur Super Admin before you can publish garments to marketplace.'),
+          backgroundColor: AppTheme.errorColor,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
     if (_productImages.isEmpty) {
@@ -662,6 +674,41 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (sellerState.shop?.isVerified != true) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFF59E0B)),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.lock_person_outlined, color: Color(0xFFD97706), size: 22),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Catalog Addition Locked: KYC Pending Admin Approval',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Your boutique verification is currently pending review by Jaipur Admin. Once approved, you will be able to publish garments to the live marketplace.',
+                                    style: TextStyle(fontSize: 11, color: Color(0xFF78350F)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
                     // Product Photos & Multi-Upload Section
                     _buildMultipleImageUploadSection(),
                     const SizedBox(height: 20),
@@ -997,22 +1044,29 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
                     const SizedBox(height: 24),
 
                     // Publish Button
-                    ElevatedButton(
+                    ElevatedButton.icon(
                       onPressed: sellerState.isLoading ? null : _handlePublish,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryColor,
+                        backgroundColor: sellerState.shop?.isVerified == true ? AppTheme.primaryColor : const Color(0xFF94A3B8),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      child: sellerState.isLoading
+                      icon: Icon(
+                        sellerState.shop?.isVerified == true ? Icons.check_circle_outline : Icons.lock_outline,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      label: sellerState.isLoading
                           ? const SizedBox(
                               height: 20,
                               width: 20,
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
-                          : const Text(
-                              'Publish Garment to Marketplace',
-                              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                          : Text(
+                              sellerState.shop?.isVerified == true
+                                  ? 'Publish Garment to Marketplace'
+                                  : 'Publish Locked (KYC Pending Admin Approval)',
+                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
                             ),
                     ),
                   ],

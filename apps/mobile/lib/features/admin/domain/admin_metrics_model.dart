@@ -497,7 +497,12 @@ class AdminDeliveryPartnerItem {
   final String? drivingLicenseNumber;
   final String? panNumber;
   final String? aadhaarNumber;
+  final String? aadhaarDocUrl;
   final String? upiId;
+  final String? bankName;
+  final String? bankAccountNumber;
+  final String? bankIfsc;
+  final String? bankAccountName;
   final bool isOnDuty;
   final String verificationStatus; // 'verified', 'pending', 'rejected'
   final String? rejectionReason;
@@ -516,7 +521,12 @@ class AdminDeliveryPartnerItem {
     this.drivingLicenseNumber = 'RJ14 20210049281',
     this.panNumber = 'ABCDE9876K',
     this.aadhaarNumber = '987654321012',
+    this.aadhaarDocUrl,
     this.upiId = 'driver@upi',
+    this.bankName = 'HDFC Bank, Johari Bazaar',
+    this.bankAccountNumber = '987654321012',
+    this.bankIfsc = 'HDFC0001234',
+    this.bankAccountName,
     required this.isOnDuty,
     required this.verificationStatus,
     this.rejectionReason,
@@ -536,7 +546,12 @@ class AdminDeliveryPartnerItem {
     String? drivingLicenseNumber,
     String? panNumber,
     String? aadhaarNumber,
+    String? aadhaarDocUrl,
     String? upiId,
+    String? bankName,
+    String? bankAccountNumber,
+    String? bankIfsc,
+    String? bankAccountName,
     bool? isOnDuty,
     String? verificationStatus,
     String? rejectionReason,
@@ -555,7 +570,12 @@ class AdminDeliveryPartnerItem {
       drivingLicenseNumber: drivingLicenseNumber ?? this.drivingLicenseNumber,
       panNumber: panNumber ?? this.panNumber,
       aadhaarNumber: aadhaarNumber ?? this.aadhaarNumber,
+      aadhaarDocUrl: aadhaarDocUrl ?? this.aadhaarDocUrl,
       upiId: upiId ?? this.upiId,
+      bankName: bankName ?? this.bankName,
+      bankAccountNumber: bankAccountNumber ?? this.bankAccountNumber,
+      bankIfsc: bankIfsc ?? this.bankIfsc,
+      bankAccountName: bankAccountName ?? this.bankAccountName,
       isOnDuty: isOnDuty ?? this.isOnDuty,
       verificationStatus: verificationStatus ?? this.verificationStatus,
       rejectionReason: rejectionReason ?? this.rejectionReason,
@@ -569,20 +589,39 @@ class AdminDeliveryPartnerItem {
   bool get isVerified => verificationStatus == 'verified' || verificationStatus == 'approved';
 
   factory AdminDeliveryPartnerItem.fromMap(Map<String, dynamic> map) {
+    Map<String, dynamic> bankMap = {};
+    final rawBank = map['bank_account_details'];
+    if (rawBank is Map<String, dynamic>) {
+      bankMap = rawBank;
+    } else if (rawBank is String && rawBank.isNotEmpty) {
+      try {
+        bankMap = Map<String, dynamic>.from(jsonDecode(rawBank) as Map);
+      } catch (_) {}
+    }
+
+    final profMap = map['profiles'] is Map<String, dynamic> ? map['profiles'] as Map<String, dynamic> : {};
+    final name = profMap['full_name'] ?? map['full_name'] ?? map['name'] ?? 'Fleet Driver';
+    final phone = profMap['phone'] ?? map['phone'] ?? '+91 98290 22222';
+
     return AdminDeliveryPartnerItem(
       id: map['id']?.toString() ?? '',
-      name: map['full_name'] ?? map['name'] ?? 'Fleet Driver',
-      phone: map['phone'] ?? '+91 98290 22222',
+      name: name,
+      phone: phone,
       vehicleType: map['vehicle_type'] ?? 'Two-Wheeler (EV)',
       vehicleNumber: map['vehicle_number'] ?? 'RJ 14 AB 1234',
-      licenseUrl: map['license_url'],
-      drivingLicenseNumber: map['driving_license_number'] ?? 'RJ14 20210049281',
-      panNumber: map['pan_number'] ?? 'ABCDE9876K',
-      aadhaarNumber: map['aadhaar_number'] ?? '987654321012',
-      upiId: map['upi_id'] ?? 'driver@upi',
-      isOnDuty: map['is_available'] == true || map['is_on_duty'] == true,
+      licenseUrl: map['driving_license_url'] ?? map['license_url'] ?? bankMap['driving_license_url'],
+      drivingLicenseNumber: bankMap['driving_license_number'] ?? map['driving_license_number'] ?? 'RJ14 20210049281',
+      panNumber: bankMap['pan_number'] ?? map['pan_number'] ?? 'ABCDE9876K',
+      aadhaarNumber: bankMap['aadhaar_number'] ?? map['aadhaar_number'] ?? '987654321012',
+      aadhaarDocUrl: bankMap['aadhaar_url'] ?? map['aadhaar_url'],
+      upiId: bankMap['upi_id'] ?? map['upi_id'] ?? 'driver@upi',
+      bankName: bankMap['bank_name'] ?? map['bank_name'] ?? 'HDFC Bank, Johari Bazaar',
+      bankAccountNumber: bankMap['account_number'] ?? map['bank_account_number'] ?? '987654321012',
+      bankIfsc: bankMap['ifsc'] ?? map['bank_ifsc'] ?? 'HDFC0001234',
+      bankAccountName: bankMap['account_holder'] ?? map['bank_account_name'] ?? name,
+      isOnDuty: map['is_available'] == true || map['is_on_duty'] == true || map['is_online'] == true,
       verificationStatus: map['verification_status'] ?? 'verified',
-      rejectionReason: map['kyc_rejection_reason'],
+      rejectionReason: bankMap['rejection_reason'] ?? map['kyc_rejection_reason'],
       ordersDelivered: (map['orders_delivered'] as num?)?.toInt() ?? 0,
       totalEarnings: (map['total_earnings'] as num?)?.toDouble() ?? 0.0,
       rating: (map['rating'] as num?)?.toDouble() ?? 4.8,
@@ -607,6 +646,7 @@ class AdminOrderItem {
   final String paymentMethod; // 'razorpay', 'cod'
   final String paymentStatus; // 'paid', 'pending', 'refunded', 'failed'
   final String orderStatus;   // 'placed', 'confirmed', 'packed', 'out_for_delivery', 'delivered', 'cancelled', 'returned'
+  final String? deliveryPartnerId;
   final String? deliveryPartnerName;
   final String deliveryAddress;
   final DateTime createdAt;
@@ -630,6 +670,7 @@ class AdminOrderItem {
     required this.paymentMethod,
     required this.paymentStatus,
     required this.orderStatus,
+    this.deliveryPartnerId,
     this.deliveryPartnerName,
     required this.deliveryAddress,
     required this.createdAt,
@@ -654,6 +695,7 @@ class AdminOrderItem {
     String? paymentMethod,
     String? paymentStatus,
     String? orderStatus,
+    String? deliveryPartnerId,
     String? deliveryPartnerName,
     String? deliveryAddress,
     DateTime? createdAt,
@@ -677,6 +719,7 @@ class AdminOrderItem {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       orderStatus: orderStatus ?? this.orderStatus,
+      deliveryPartnerId: deliveryPartnerId ?? this.deliveryPartnerId,
       deliveryPartnerName: deliveryPartnerName ?? this.deliveryPartnerName,
       deliveryAddress: deliveryAddress ?? this.deliveryAddress,
       createdAt: createdAt ?? this.createdAt,
@@ -689,7 +732,7 @@ class AdminOrderItem {
 
   factory AdminOrderItem.fromMap(Map<String, dynamic> map) {
     final sub = (map['subtotal'] as num?)?.toDouble() ?? 0.0;
-    final fee = (map['delivery_fee'] as num?)?.toDouble() ?? 30.0;
+    final fee = (map['delivery_fee'] as num?)?.toDouble() ?? 0.0;
     final pFee = (map['platform_fee'] as num?)?.toDouble() ?? 10.0;
     final totRaw = (map['total_amount'] as num?)?.toDouble() ?? (map['total'] as num?)?.toDouble() ?? 0.0;
     final tot = totRaw > 0 ? totRaw : (sub + fee + pFee);
@@ -701,6 +744,9 @@ class AdminOrderItem {
     final payoutRef = map['seller_payout_ref']?.toString();
     final paidAt = map['seller_paid_at'] != null ? DateTime.tryParse(map['seller_paid_at'].toString()) : null;
     final payMethod = map['seller_payment_method']?.toString();
+    final partnerId = map['delivery_partner_id']?.toString();
+    final partnerName = map['delivery_partner_name'] ??
+        (partnerId == '00000000-0000-0000-0000-000000000003' ? 'Vikram Singh' : (partnerId == '00000000-0000-0000-0000-000000000031' ? 'Rahul Sharma' : null));
 
     return AdminOrderItem(
       id: map['id']?.toString() ?? '',
@@ -717,7 +763,8 @@ class AdminOrderItem {
       paymentMethod: map['payment_method'] ?? 'razorpay',
       paymentStatus: map['payment_status'] ?? 'paid',
       orderStatus: map['status'] ?? 'confirmed',
-      deliveryPartnerName: map['delivery_partner_name'],
+      deliveryPartnerId: partnerId,
+      deliveryPartnerName: partnerName,
       deliveryAddress: map['delivery_address_str'] ?? 'Jaipur, Rajasthan',
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at']) ?? DateTime.now() : DateTime.now(),
       sellerPayoutStatus: payoutStatus,
@@ -962,6 +1009,113 @@ class DeliveryMonthlySalarySummary {
   }
 }
 
+/// 12. Cash on Delivery (COD) Remittance & Seller Payback Item Model
+class AdminCodRemittanceItem {
+  final String id;
+  final String orderId;
+  final String orderNumber;
+  final String shopId;
+  final String shopName;
+  final String driverId;
+  final String driverName;
+  final String driverPhone;
+  final String driverVehicle;
+  final double codAmount;
+  final double commissionAmount; // 3%
+  final double sellerPayout; // 97%
+  final DateTime orderDate;
+  final String collectionStatus; // 'collected', 'delivered'
+  final String remittanceStatus; // 'pending' (with driver), 'submitted' (remitted by driver, awaiting admin verification), 'verified' (verified & received by admin)
+  final String? remittanceMethod;
+  final String? remittanceRef;
+  final DateTime? remittedAt;
+  final DateTime? verifiedAt;
+  final String sellerPayoutStatus; // 'pending', 'paid'
+  final String? sellerPayoutRef;
+  final DateTime? sellerPaidAt;
+
+  const AdminCodRemittanceItem({
+    required this.id,
+    required this.orderId,
+    required this.orderNumber,
+    required this.shopId,
+    required this.shopName,
+    required this.driverId,
+    required this.driverName,
+    required this.driverPhone,
+    required this.driverVehicle,
+    required this.codAmount,
+    required this.commissionAmount,
+    required this.sellerPayout,
+    required this.orderDate,
+    this.collectionStatus = 'collected',
+    this.remittanceStatus = 'pending',
+    this.remittanceMethod,
+    this.remittanceRef,
+    this.remittedAt,
+    this.verifiedAt,
+    this.sellerPayoutStatus = 'pending',
+    this.sellerPayoutRef,
+    this.sellerPaidAt,
+  });
+
+  bool get isRemittedByDriver =>
+      remittanceStatus == 'submitted' || remittanceStatus == 'verified' || remittanceStatus == 'remitted';
+  bool get isVerifiedByAdmin =>
+      remittanceStatus == 'verified' || remittanceStatus == 'remitted';
+  bool get isSellerPaid => sellerPayoutStatus.toLowerCase() == 'paid';
+
+  AdminCodRemittanceItem copyWith({
+    String? id,
+    String? orderId,
+    String? orderNumber,
+    String? shopId,
+    String? shopName,
+    String? driverId,
+    String? driverName,
+    String? driverPhone,
+    String? driverVehicle,
+    double? codAmount,
+    double? commissionAmount,
+    double? sellerPayout,
+    DateTime? orderDate,
+    String? collectionStatus,
+    String? remittanceStatus,
+    String? remittanceMethod,
+    String? remittanceRef,
+    DateTime? remittedAt,
+    DateTime? verifiedAt,
+    String? sellerPayoutStatus,
+    String? sellerPayoutRef,
+    DateTime? sellerPaidAt,
+  }) {
+    return AdminCodRemittanceItem(
+      id: id ?? this.id,
+      orderId: orderId ?? this.orderId,
+      orderNumber: orderNumber ?? this.orderNumber,
+      shopId: shopId ?? this.shopId,
+      shopName: shopName ?? this.shopName,
+      driverId: driverId ?? this.driverId,
+      driverName: driverName ?? this.driverName,
+      driverPhone: driverPhone ?? this.driverPhone,
+      driverVehicle: driverVehicle ?? this.driverVehicle,
+      codAmount: codAmount ?? this.codAmount,
+      commissionAmount: commissionAmount ?? this.commissionAmount,
+      sellerPayout: sellerPayout ?? this.sellerPayout,
+      orderDate: orderDate ?? this.orderDate,
+      collectionStatus: collectionStatus ?? this.collectionStatus,
+      remittanceStatus: remittanceStatus ?? this.remittanceStatus,
+      remittanceMethod: remittanceMethod ?? this.remittanceMethod,
+      remittanceRef: remittanceRef ?? this.remittanceRef,
+      remittedAt: remittedAt ?? this.remittedAt,
+      verifiedAt: verifiedAt ?? this.verifiedAt,
+      sellerPayoutStatus: sellerPayoutStatus ?? this.sellerPayoutStatus,
+      sellerPayoutRef: sellerPayoutRef ?? this.sellerPayoutRef,
+      sellerPaidAt: sellerPaidAt ?? this.sellerPaidAt,
+    );
+  }
+}
+
 /// 11. Master Consolidated Admin Metrics & Data Model
 class AdminMetricsModel {
   // 1. Core KPIs
@@ -1006,6 +1160,7 @@ class AdminMetricsModel {
   final List<AdminAuditLogItem> auditLogs;
   final List<ShopSettlementSummary> shopSettlements;
   final List<DeliveryMonthlySalarySummary> deliverySalaries;
+  final List<AdminCodRemittanceItem> codRemittances;
 
   // 4. Trend Data for Graphs
   final List<AdminChartPoint> revenueTrends;
@@ -1046,6 +1201,7 @@ class AdminMetricsModel {
     this.auditLogs = const [],
     this.shopSettlements = const [],
     this.deliverySalaries = const [],
+    this.codRemittances = const [],
     this.revenueTrends = const [],
     this.ordersTrends = const [],
     this.gmvTrends = const [],
@@ -1055,6 +1211,20 @@ class AdminMetricsModel {
   });
 
   double get avgOrderValue => totalOrdersCount > 0 ? (totalGmv / totalOrdersCount) : 0.0;
+
+  // COD Calculations
+  double get totalCodCollected =>
+      codRemittances.fold<double>(0.0, (acc, c) => acc + c.codAmount);
+  double get totalPendingCodRemittance => codRemittances
+      .where((c) => !c.isVerifiedByAdmin)
+      .fold<double>(0.0, (acc, c) => acc + c.codAmount);
+  double get totalReceivedCodRemittance => codRemittances
+      .where((c) => c.isVerifiedByAdmin)
+      .fold<double>(0.0, (acc, c) => acc + c.codAmount);
+  int get pendingCodCount =>
+      codRemittances.where((c) => !c.isVerifiedByAdmin).length;
+  int get successfulCodCount =>
+      codRemittances.where((c) => c.isVerifiedByAdmin).length;
 
   AdminMetricsModel copyWith({
     double? totalGmv,
@@ -1087,6 +1257,7 @@ class AdminMetricsModel {
     List<AdminAuditLogItem>? auditLogs,
     List<ShopSettlementSummary>? shopSettlements,
     List<DeliveryMonthlySalarySummary>? deliverySalaries,
+    List<AdminCodRemittanceItem>? codRemittances,
     List<AdminChartPoint>? revenueTrends,
     List<AdminChartPoint>? ordersTrends,
     List<AdminChartPoint>? gmvTrends,
@@ -1125,6 +1296,7 @@ class AdminMetricsModel {
       auditLogs: auditLogs ?? this.auditLogs,
       shopSettlements: shopSettlements ?? this.shopSettlements,
       deliverySalaries: deliverySalaries ?? this.deliverySalaries,
+      codRemittances: codRemittances ?? this.codRemittances,
       revenueTrends: revenueTrends ?? this.revenueTrends,
       ordersTrends: ordersTrends ?? this.ordersTrends,
       gmvTrends: gmvTrends ?? this.gmvTrends,

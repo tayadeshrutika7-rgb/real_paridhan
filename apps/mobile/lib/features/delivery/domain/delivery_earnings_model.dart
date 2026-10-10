@@ -66,6 +66,81 @@ class DeliveryTripSummary {
   }
 }
 
+class DeliveryCodRemittanceItem {
+  final String id;
+  final String driverId;
+  final String driverName;
+  final double amount;
+  final String status; // 'pending' (Awaiting Admin Verification), 'verified' (Settled & Verified by Admin)
+  final String paymentMethod; // 'Admin Primary UPI', 'Bank IMPS/NEFT Escrow', 'Jaipur HQ Cash Hub'
+  final String reference; // UTR or Ref number
+  final String? notes;
+  final DateTime createdAt;
+  final DateTime? verifiedAt;
+  final List<String> orderNumbers;
+  final List<String> orderIds;
+  final bool isSellerPaid;
+
+  const DeliveryCodRemittanceItem({
+    required this.id,
+    required this.driverId,
+    required this.driverName,
+    required this.amount,
+    required this.status,
+    required this.paymentMethod,
+    required this.reference,
+    this.notes,
+    required this.createdAt,
+    this.verifiedAt,
+    this.orderNumbers = const [],
+    this.orderIds = const [],
+    this.isSellerPaid = false,
+  });
+
+  bool get isVerified =>
+      status.toLowerCase() == 'verified' || status.toLowerCase() == 'remitted';
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'driver_id': driverId,
+      'driver_name': driverName,
+      'amount': amount,
+      'status': status,
+      'payment_method': paymentMethod,
+      'reference': reference,
+      'notes': notes,
+      'created_at': createdAt.toIso8601String(),
+      'verified_at': verifiedAt?.toIso8601String(),
+      'order_numbers': orderNumbers,
+      'order_ids': orderIds,
+      'is_seller_paid': isSellerPaid,
+    };
+  }
+
+  factory DeliveryCodRemittanceItem.fromMap(Map<String, dynamic> map) {
+    return DeliveryCodRemittanceItem(
+      id: map['id']?.toString() ?? '',
+      driverId: map['driver_id']?.toString() ?? '',
+      driverName: map['driver_name']?.toString() ?? 'Delivery Partner',
+      amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+      status: map['status']?.toString() ?? 'pending',
+      paymentMethod: map['payment_method']?.toString() ?? 'Admin UPI Transfer',
+      reference: map['reference']?.toString() ?? '',
+      notes: map['notes']?.toString(),
+      createdAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      verifiedAt: map['verified_at'] != null
+          ? DateTime.tryParse(map['verified_at'].toString())
+          : null,
+      orderNumbers: (map['order_numbers'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      orderIds: (map['order_ids'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      isSellerPaid: map['is_seller_paid'] == true,
+    );
+  }
+}
+
 class DeliveryEarningsModel {
   final int todayTripsCount;
   final double todayBaseEarnings;
@@ -78,6 +153,16 @@ class DeliveryEarningsModel {
   final double totalDistanceTodayKm;
   final List<DeliveryTripSummary> trips;
   final List<DeliveryPenaltyItem> penalties;
+  final List<DeliveryCodRemittanceItem> remittances;
+
+  // Monthly Salary Ledger Sync
+  final String monthlySalaryMonth;
+  final String monthlySalaryStatus; // 'Paid', 'Pending'
+  final double monthlySalaryAmount;
+  final String? monthlySalaryRef;
+  final String? monthlySalaryMethod;
+  final DateTime? monthlySalaryPaidAt;
+  final int monthlySalaryTripsCount;
 
   const DeliveryEarningsModel({
     this.todayTripsCount = 0,
@@ -91,6 +176,14 @@ class DeliveryEarningsModel {
     this.totalDistanceTodayKm = 0.0,
     this.trips = const [],
     this.penalties = const [],
+    this.remittances = const [],
+    this.monthlySalaryMonth = 'October 2026',
+    this.monthlySalaryStatus = 'Pending',
+    this.monthlySalaryAmount = 0.0,
+    this.monthlySalaryRef,
+    this.monthlySalaryMethod,
+    this.monthlySalaryPaidAt,
+    this.monthlySalaryTripsCount = 0,
   });
 
   /// Gross earnings before penalties
@@ -104,6 +197,12 @@ class DeliveryEarningsModel {
   /// Unclamped net balance (can be negative if penalty exceeds earnings)
   double get rawNetBalance => todayTotalEarnings - todayPenalties;
 
+  bool get isSalaryCredited => monthlySalaryStatus.toLowerCase() == 'paid';
+
+  /// Total amount of COD cash remitted / settled with admin
+  double get totalCodRemitted =>
+      remittances.fold<double>(0.0, (acc, r) => acc + r.amount);
+
   DeliveryEarningsModel copyWith({
     int? todayTripsCount,
     double? todayBaseEarnings,
@@ -116,6 +215,14 @@ class DeliveryEarningsModel {
     double? totalDistanceTodayKm,
     List<DeliveryTripSummary>? trips,
     List<DeliveryPenaltyItem>? penalties,
+    List<DeliveryCodRemittanceItem>? remittances,
+    String? monthlySalaryMonth,
+    String? monthlySalaryStatus,
+    double? monthlySalaryAmount,
+    String? monthlySalaryRef,
+    String? monthlySalaryMethod,
+    DateTime? monthlySalaryPaidAt,
+    int? monthlySalaryTripsCount,
   }) {
     return DeliveryEarningsModel(
       todayTripsCount: todayTripsCount ?? this.todayTripsCount,
@@ -132,6 +239,14 @@ class DeliveryEarningsModel {
           totalDistanceTodayKm ?? this.totalDistanceTodayKm,
       trips: trips ?? this.trips,
       penalties: penalties ?? this.penalties,
+      remittances: remittances ?? this.remittances,
+      monthlySalaryMonth: monthlySalaryMonth ?? this.monthlySalaryMonth,
+      monthlySalaryStatus: monthlySalaryStatus ?? this.monthlySalaryStatus,
+      monthlySalaryAmount: monthlySalaryAmount ?? this.monthlySalaryAmount,
+      monthlySalaryRef: monthlySalaryRef ?? this.monthlySalaryRef,
+      monthlySalaryMethod: monthlySalaryMethod ?? this.monthlySalaryMethod,
+      monthlySalaryPaidAt: monthlySalaryPaidAt ?? this.monthlySalaryPaidAt,
+      monthlySalaryTripsCount: monthlySalaryTripsCount ?? this.monthlySalaryTripsCount,
     );
   }
 }

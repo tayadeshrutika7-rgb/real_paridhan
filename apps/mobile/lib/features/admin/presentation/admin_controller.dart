@@ -353,6 +353,9 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
       adminName: adminName,
     );
     if (success) {
+      ref.invalidate(sellerProvider);
+      ref.invalidate(consumerProvider);
+
       // Notify Seller
       ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
         title: 'Account Status: ${newStatus.toUpperCase()}',
@@ -510,6 +513,81 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
         body: 'Disbursed ₹${amount.toStringAsFixed(2)} to $driverName for $monthName.',
         category: NotificationCategory.platform,
         deepLink: '/admin/delivery',
+      );
+
+      await loadDashboard();
+      return true;
+    }
+    return false;
+  }
+
+  /// Verify and accept physical COD cash remitted by delivery rider
+  Future<bool> verifyCodRemittance({
+    required String remittanceId,
+    String? orderId,
+    String adminName = 'Platform Super Admin',
+  }) async {
+    final success = await _repository.verifyCodRemittance(
+      remittanceId: remittanceId,
+      orderId: orderId,
+      adminName: adminName,
+    );
+
+    if (success) {
+      ref.read(roleNotificationProvider(UserRole.delivery).notifier).postNotification(
+        title: 'COD Cash Verified by Admin ✅',
+        body: 'Your cash remittance (Ref: $remittanceId) has been confirmed and settled.',
+        category: NotificationCategory.trip,
+        deepLink: '/delivery/earnings',
+      );
+
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'COD Remittance Verified',
+        body: 'Verified cash remittance $remittanceId into platform ledger.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin',
+      );
+
+      await loadDashboard();
+      return true;
+    }
+    return false;
+  }
+
+  /// Disburse 97% Seller Payback after COD cash collection & verification
+  Future<bool> disburseCodSellerPayback({
+    required String orderId,
+    required String shopName,
+    required double amount,
+    required String transactionRef,
+    String adminName = 'Platform Super Admin',
+  }) async {
+    final success = await _repository.disburseCodSellerPayback(
+      orderId: orderId,
+      shopName: shopName,
+      amount: amount,
+      transactionRef: transactionRef,
+      paymentMethod: 'COD Escrow Payback',
+      adminName: adminName,
+    );
+
+    if (success) {
+      // Invalidate seller and consumer providers so seller dashboard updates immediately
+      ref.invalidate(sellerProvider);
+      ref.invalidate(consumerProvider);
+
+      ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+        title: 'COD Payback Credited to Boutique 💰',
+        body: 'Admin transferred ₹${amount.toStringAsFixed(2)} (97% net) for Order #$orderId (Ref: $transactionRef).',
+        category: NotificationCategory.platform,
+        deepLink: '/seller',
+      );
+
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'COD Payback Disbursed to Seller',
+        body: 'Successfully transferred ₹${amount.toStringAsFixed(2)} to $shopName for Order #$orderId.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin',
       );
 
       await loadDashboard();

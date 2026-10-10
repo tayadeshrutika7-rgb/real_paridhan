@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
 import '../domain/admin_metrics_model.dart';
 import '../../seller/data/seller_repository.dart';
+import '../../delivery/data/delivery_repository.dart';
+import '../../delivery/domain/delivery_earnings_model.dart';
 
 class AdminRepository {
   final SupabaseClient? _client;
@@ -23,6 +25,8 @@ class AdminRepository {
   static final Set<String> _locallyRejectedDriverIds = {};
   static final Map<String, Map<String, dynamic>> _locallyPaidOrderPayouts = {};
   static final Map<String, Map<String, dynamic>> _locallyPaidDriverSalaries = {};
+  static Map<String, Map<String, dynamic>> get locallyPaidDriverSalaries => _locallyPaidDriverSalaries;
+  static Future<void> loadPersistedStatus() async => _loadPersistedStatus();
 
   static const _kApprovedShopsKey = 'paridhan_approved_shop_ids';
   static const _kRejectedShopsKey = 'paridhan_rejected_shop_ids';
@@ -599,6 +603,13 @@ class AdminRepository {
         activeOrders,
       );
 
+      final driverRemittances = await DeliveryRepository.getStoredRemittances();
+      final computedCodRemittances = _computeCodRemittances(
+        _simulatedFleet,
+        activeOrders,
+        driverRemittances,
+      );
+
       return AdminMetricsModel(
         totalGmv: defaultGmv,
         platformCommissionRate: commissionRate,
@@ -630,6 +641,7 @@ class AdminRepository {
         auditLogs: _simulatedAuditLogs,
         shopSettlements: computedShopSettlements,
         deliverySalaries: computedDeliverySalaries,
+        codRemittances: computedCodRemittances,
         revenueTrends: revenueTrends,
         ordersTrends: ordersTrends,
         categorySalesDistribution: categorySales,
@@ -653,18 +665,26 @@ class AdminRepository {
         // If the live database row has status 'pending' or kyc_status 'pending', it is an active verification request!
         // Stale local storage approvals must never override live pending requests from the database.
         final isDbPending = (m['status'] == 'pending' || m['kyc_status'] == 'pending') && m['is_verified'] != true;
+        final isDbVerified = m['is_verified'] == true || m['status'] == 'verified' || m['kyc_status'] == 'verified';
+
         if (isDbPending) {
           _locallyApprovedShopIds.remove(item.id);
           if (item.sellerId.isNotEmpty) _locallyApprovedShopIds.remove(item.sellerId);
           _locallyApprovedShopIds.remove(item.shopName);
+        } else if (isDbVerified) {
+          _locallyRejectedShopIds.remove(item.id);
+          if (item.sellerId.isNotEmpty) _locallyRejectedShopIds.remove(item.sellerId);
+          _locallyRejectedShopIds.remove(item.shopName);
+          _locallyApprovedShopIds.add(item.id);
         }
 
-        final isApprovedLocal = !isDbPending && (_locallyApprovedShopIds.contains(item.id) ||
+        final isApprovedLocal = !isDbPending && (isDbVerified ||
+            _locallyApprovedShopIds.contains(item.id) ||
             (item.sellerId.isNotEmpty && _locallyApprovedShopIds.contains(item.sellerId)) ||
             _locallyApprovedShopIds.contains(item.shopName));
-        final isRejectedLocal = _locallyRejectedShopIds.contains(item.id) ||
+        final isRejectedLocal = !isDbVerified && (_locallyRejectedShopIds.contains(item.id) ||
             (item.sellerId.isNotEmpty && _locallyRejectedShopIds.contains(item.sellerId)) ||
-            _locallyRejectedShopIds.contains(item.shopName);
+            _locallyRejectedShopIds.contains(item.shopName));
 
         final adjustedItem = isDbPending
             ? item.copyWith(status: KycStatus.pending)
@@ -763,15 +783,28 @@ class AdminRepository {
       }
     } catch (_) {}
 
-    // ─── 6. LIVE PROFILES COUNT (CONSUMERS & RIDERS) ─────────────────────────
+    // ─── 6. LIVE PROFILES COUNT & DELIVERY FLEET PROFILES ─────────────────
     int realConsumerCount = 0;
     int realDeliveryCount = 0;
+    final realDeliveryFleet = <AdminDeliveryPartnerItem>[];
     try {
       final profRes = await _client!.from('profiles').select('id, role');
       for (final p in (profRes as List)) {
         final role = p['role']?.toString().toLowerCase();
         if (role == 'consumer') realConsumerCount++;
         if (role == 'delivery') realDeliveryCount++;
+      }
+
+      final dppRes = await _client!.from('delivery_partner_profiles').select('*, profiles:id(full_name, phone, email)');
+      if (dppRes is List && dppRes.isNotEmpty) {
+        for (final d in dppRes) {
+          final item = AdminDeliveryPartnerItem.fromMap(d as Map<String, dynamic>);
+          // Apply local memory verification overrides if any
+          final isLocallyApproved = _locallyApprovedShopIds.contains(item.id);
+          final isLocallyRejected = _locallyRejectedShopIds.contains(item.id);
+          final effectiveStatus = isLocallyApproved ? 'verified' : isLocallyRejected ? 'rejected' : item.verificationStatus;
+          realDeliveryFleet.add(item.copyWith(verificationStatus: effectiveStatus));
+        }
       }
     } catch (_) {}
 
@@ -843,9 +876,17 @@ class AdminRepository {
       parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
       commissionRate,
     );
+    final activeFleet = realDeliveryFleet.isNotEmpty ? realDeliveryFleet : _simulatedFleet;
     final computedDeliverySalaries = _computeDeliverySalaries(
-      _simulatedFleet,
+      activeFleet,
       parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
+    );
+
+    final driverRemittances = await DeliveryRepository.getStoredRemittances();
+    final computedCodRemittances = _computeCodRemittances(
+      activeFleet,
+      parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
+      driverRemittances,
     );
 
     return AdminMetricsModel(
@@ -863,15 +904,15 @@ class AdminRepository {
       activeBoutiquesCount: currentApproved.length,
       pendingKycCount: currentPending.length,
       suspendedSellersCount: dbShops.where((s) => s.status == KycStatus.rejected).length,
-      onDutyDeliveryFleetCount: realDeliveryCount,
-      totalDeliveryPartnersCount: realDeliveryCount,
+      onDutyDeliveryFleetCount: activeFleet.where((d) => d.isOnDuty).length,
+      totalDeliveryPartnersCount: activeFleet.length,
       pendingOrdersCount: parsedOrders.where((o) => o.orderStatus == 'placed' || o.orderStatus == 'pending').length,
       openDisputesCount: parsedDisputes.where((d) => !d.isResolved).length,
       pendingBoutiques: currentPending,
       allBoutiques: dbShops,
       sellers: liveSellersList,
       customers: _simulatedCustomers,
-      deliveryPartners: _simulatedFleet,
+      deliveryPartners: activeFleet,
       orders: parsedOrders,
       inventoryItems: inventoryItems,
       zoneMetrics: zoneMetrics,
@@ -879,6 +920,7 @@ class AdminRepository {
       auditLogs: parsedLogs,
       shopSettlements: computedShopSettlements,
       deliverySalaries: computedDeliverySalaries,
+      codRemittances: computedCodRemittances,
       revenueTrends: liveRevenueTrends,
       ordersTrends: liveOrdersTrends,
       categorySalesDistribution: categorySales,
@@ -1014,6 +1056,9 @@ class AdminRepository {
 
       try {
         await _client.from('shops').update(updateMap).eq('id', boutiqueId);
+        if (shopName != null && shopName.isNotEmpty) {
+          await _client.from('shops').update(updateMap).eq('name', shopName);
+        }
         if (matchedSellerId != null && matchedSellerId.isNotEmpty) {
           await _client.from('shops').update(updateMap).eq('seller_id', matchedSellerId);
         }
@@ -1155,16 +1200,29 @@ class AdminRepository {
     String? reason,
     String adminName = 'Super Admin',
   }) async {
+    final isVerified = newStatus == 'verified';
+    final kycStatus = isVerified ? 'verified' : (newStatus == 'suspended' ? 'rejected' : 'pending');
+
+    await _loadPersistedStatus();
+    if (isVerified) {
+      _locallyApprovedShopIds.add(shopId);
+      _locallyRejectedShopIds.remove(shopId);
+    } else if (newStatus == 'suspended') {
+      _locallyRejectedShopIds.add(shopId);
+      _locallyApprovedShopIds.remove(shopId);
+    }
+    await _persistStatus();
+
     _simulatedAuditLogs.insert(
       0,
       AdminAuditLogItem(
         id: 'audit-${DateTime.now().millisecondsSinceEpoch}',
         adminName: adminName,
-        action: 'SELLER_STATUS_CHANGED',
+        action: isVerified ? 'SELLER_APPROVED_ACTIVATED' : 'SELLER_STATUS_CHANGED',
         entity: 'shop',
         entityId: shopId,
-        details: 'Changed seller status to $newStatus. ${reason ?? ""}',
-        newValue: 'status: $newStatus',
+        details: 'Changed seller status to $newStatus (KYC: $kycStatus). ${reason ?? ""}',
+        newValue: 'status: $newStatus, is_verified: $isVerified, kyc_status: $kycStatus',
         timestamp: DateTime.now(),
       ),
     );
@@ -1173,6 +1231,8 @@ class AdminRepository {
     try {
       await _client.from('shops').update({
         'status': newStatus,
+        'is_verified': isVerified,
+        'kyc_status': kycStatus,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', shopId);
       return true;
@@ -1332,54 +1392,27 @@ class AdminRepository {
     const month = 'October 2026';
     return fleet.map((driver) {
       final driverOrders = ordersList.where((o) =>
-        o.deliveryPartnerName != null &&
-        o.deliveryPartnerName!.toLowerCase().contains(driver.name.toLowerCase().split(' ').first)).toList();
+        (o.deliveryPartnerId != null && o.deliveryPartnerId == driver.id) ||
+        (o.deliveryPartnerName != null &&
+        o.deliveryPartnerName!.toLowerCase().contains(driver.name.toLowerCase().split(' ').first))).toList();
 
       final tripRecords = <DeliveryOrderTripRecord>[];
-      if (driverOrders.isNotEmpty) {
-        for (final o in driverOrders) {
-          tripRecords.add(DeliveryOrderTripRecord(
-            orderId: o.id,
-            orderNumber: o.id,
-            deliveryTime: o.createdAt,
-            orderAmount: o.total,
-            tripEarning: 70.0,
-            deliveryZone: o.deliveryAddress,
-            status: 'Delivered & Confirmed',
-          ));
-        }
-      } else {
-        tripRecords.addAll([
-          DeliveryOrderTripRecord(
-            orderId: 'PRD-2026-8812',
-            orderNumber: 'PRD-2026-8812',
-            deliveryTime: DateTime.now().subtract(const Duration(hours: 2)),
-            orderAmount: 3549.0,
-            tripEarning: 70.0,
-            deliveryZone: 'B-24, Tilak Nagar, Jaipur',
-          ),
-          DeliveryOrderTripRecord(
-            orderId: 'PRD-2026-6541',
-            orderNumber: 'PRD-2026-6541',
-            deliveryTime: DateTime.now().subtract(const Duration(days: 1)),
-            orderAmount: 1939.0,
-            tripEarning: 70.0,
-            deliveryZone: '108, Malviya Nagar, Near WTP, Jaipur',
-          ),
-          DeliveryOrderTripRecord(
-            orderId: 'PRD-2026-4419',
-            orderNumber: 'PRD-2026-4419',
-            deliveryTime: DateTime.now().subtract(const Duration(days: 2)),
-            orderAmount: 2240.0,
-            tripEarning: 70.0,
-            deliveryZone: 'C-Scheme, Ashok Nagar, Jaipur',
-          ),
-        ]);
+      for (final o in driverOrders) {
+        final tripEarning = o.deliveryFee > 0 ? o.deliveryFee : 0.0;
+        tripRecords.add(DeliveryOrderTripRecord(
+          orderId: o.id,
+          orderNumber: o.id,
+          deliveryTime: o.createdAt,
+          orderAmount: o.total,
+          tripEarning: tripEarning,
+          deliveryZone: o.deliveryAddress,
+          status: 'Delivered & Confirmed',
+        ));
       }
 
-      final ordersDelivered = driver.ordersDelivered > 0 ? driver.ordersDelivered : tripRecords.length;
-      final perOrderTotal = ordersDelivered * 70.0;
-      final incentive = 2500.0;
+      final ordersDelivered = tripRecords.length;
+      final perOrderTotal = tripRecords.fold(0.0, (acc, t) => acc + t.tripEarning);
+      final incentive = 0.0;
       final penalty = 0.0;
       final totalSalary = perOrderTotal + incentive - penalty;
 
@@ -1397,7 +1430,9 @@ class AdminRepository {
         vehicleType: driver.vehicleType,
         vehicleNumber: driver.vehicleNumber,
         upiId: driver.upiId ?? '${driver.name.toLowerCase().replaceAll(' ', '')}@upi',
-        bankAccount: 'SBI 30981122334',
+        bankAccount: (driver.bankAccountNumber != null && driver.bankAccountNumber!.isNotEmpty)
+            ? '${driver.bankName ?? 'Bank'} ${driver.bankAccountNumber}'
+            : 'SBI 30981122334',
         monthName: month,
         completedOrdersCount: ordersDelivered,
         perOrderEarningsTotal: perOrderTotal,
@@ -1412,6 +1447,242 @@ class AdminRepository {
         tripRecords: tripRecords,
       );
     }).toList();
+  }
+
+  List<AdminCodRemittanceItem> _computeCodRemittances(
+    List<AdminDeliveryPartnerItem> fleet,
+    List<AdminOrderItem> ordersList,
+    List<DeliveryCodRemittanceItem> driverRemittances,
+  ) {
+    final list = <AdminCodRemittanceItem>[];
+
+    // Find all COD orders
+    final codOrders = ordersList.where((o) =>
+      o.paymentMethod.toLowerCase() == 'cod' ||
+      o.id.toLowerCase().contains('cod')
+    ).toList();
+
+    for (final order in codOrders) {
+      // Find driver assigned or default to Vikram Singh
+      final driver = fleet.firstWhere(
+        (d) => (order.deliveryPartnerId != null && d.id == order.deliveryPartnerId) ||
+               (order.deliveryPartnerName != null && d.name.toLowerCase().contains(order.deliveryPartnerName!.toLowerCase().split(' ').first)),
+        orElse: () => fleet.isNotEmpty
+            ? fleet.first
+            : AdminDeliveryPartnerItem(
+                id: '00000000-0000-0000-0000-000000000003',
+                name: 'Vikram Singh (Johari Rider)',
+                phone: '+91 98290 33333',
+                vehicleType: 'Hero Splendor Plus',
+                vehicleNumber: 'RJ 14 JP 4421',
+                rating: 4.9,
+                totalEarnings: 3450.0,
+                ordersDelivered: 42,
+                successRate: 98.4,
+                isOnDuty: true,
+                verificationStatus: 'verified',
+              ),
+      );
+
+      // Check if driver submitted a remittance covering this order or general remittance
+      final matchingRemList = driverRemittances.where(
+        (r) => r.orderIds.contains(order.id) || r.orderNumbers.contains(order.id) || r.driverId == driver.id,
+      ).toList();
+
+      final hasRemitted = matchingRemList.isNotEmpty;
+      final matchingRem = hasRemitted ? matchingRemList.first : null;
+      final isVerified = hasRemitted && matchingRem!.isVerified;
+
+      final remittanceStatus = isVerified
+          ? 'verified'
+          : (hasRemitted ? 'submitted' : (order.orderStatus == 'delivered' ? 'pending' : 'awaiting_delivery'));
+
+      final comm = order.commissionAmount > 0 ? order.commissionAmount : (order.total * 0.03);
+      final netSellerPayable = order.sellerPayout > 0 ? order.sellerPayout : (order.total - comm);
+
+      list.add(AdminCodRemittanceItem(
+        id: hasRemitted ? matchingRem!.id : 'cod-rem-${order.id}',
+        orderId: order.id,
+        orderNumber: order.id,
+        shopId: 'c0000001-0000-0000-0000-000000000001',
+        shopName: order.shopName,
+        driverId: driver.id,
+        driverName: driver.name,
+        driverPhone: driver.phone,
+        driverVehicle: '${driver.vehicleType} (${driver.vehicleNumber})',
+        codAmount: order.total,
+        commissionAmount: comm,
+        sellerPayout: netSellerPayable,
+        orderDate: order.createdAt,
+        collectionStatus: order.orderStatus == 'delivered' ? 'collected' : 'pending',
+        remittanceStatus: remittanceStatus,
+        remittanceMethod: hasRemitted ? matchingRem!.paymentMethod : null,
+        remittanceRef: hasRemitted ? matchingRem!.reference : null,
+        remittedAt: hasRemitted ? matchingRem!.createdAt : null,
+        verifiedAt: isVerified ? matchingRem!.verifiedAt : null,
+        sellerPayoutStatus: order.sellerPayoutStatus,
+        sellerPayoutRef: order.sellerPayoutRef,
+        sellerPaidAt: order.sellerPaidAt,
+      ));
+    }
+
+    // Also include any standalone remittances submitted by riders not linked to a specific order
+    for (final rem in driverRemittances) {
+      if (!list.any((item) => item.id == rem.id)) {
+        final driver = fleet.firstWhere(
+          (d) => d.id == rem.driverId,
+          orElse: () => AdminDeliveryPartnerItem(
+            id: rem.driverId,
+            name: rem.driverName,
+            phone: '+91 98290 33333',
+            vehicleType: 'Hero Splendor Plus',
+            vehicleNumber: 'RJ 14 JP 4421',
+            rating: 4.9,
+            totalEarnings: 3450.0,
+            ordersDelivered: 42,
+            successRate: 98.4,
+            isOnDuty: true,
+            verificationStatus: 'verified',
+          ),
+        );
+
+        final comm = rem.amount * 0.03;
+        final netSellerPayable = rem.amount * 0.97;
+
+        list.add(AdminCodRemittanceItem(
+          id: rem.id,
+          orderId: rem.orderIds.isNotEmpty ? rem.orderIds.first : 'ord-batch-${rem.id}',
+          orderNumber: rem.orderNumbers.isNotEmpty ? rem.orderNumbers.first : 'BATCH-${rem.reference}',
+          shopId: 'c0000001-0000-0000-0000-000000000001',
+          shopName: 'Johari Royal Heritage Boutique',
+          driverId: driver.id,
+          driverName: driver.name,
+          driverPhone: driver.phone,
+          driverVehicle: '${driver.vehicleType} (${driver.vehicleNumber})',
+          codAmount: rem.amount,
+          commissionAmount: comm,
+          sellerPayout: netSellerPayable,
+          orderDate: rem.createdAt,
+          collectionStatus: 'collected',
+          remittanceStatus: rem.isVerified ? 'verified' : 'submitted',
+          remittanceMethod: rem.paymentMethod,
+          remittanceRef: rem.reference,
+          remittedAt: rem.createdAt,
+          verifiedAt: rem.verifiedAt,
+          sellerPayoutStatus: rem.isSellerPaid ? 'paid' : 'pending',
+        ));
+      }
+    }
+
+    return list;
+  }
+
+  Future<bool> verifyCodRemittance({
+    required String remittanceId,
+    String? orderId,
+    String adminName = 'Platform Super Admin',
+  }) async {
+    final list = await DeliveryRepository.getStoredRemittances();
+    final idx = list.indexWhere((r) => r.id == remittanceId || (orderId != null && r.orderIds.contains(orderId)));
+    if (idx != -1) {
+      list[idx] = DeliveryCodRemittanceItem(
+        id: list[idx].id,
+        driverId: list[idx].driverId,
+        driverName: list[idx].driverName,
+        amount: list[idx].amount,
+        status: 'verified',
+        paymentMethod: list[idx].paymentMethod,
+        reference: list[idx].reference,
+        notes: list[idx].notes,
+        createdAt: list[idx].createdAt,
+        verifiedAt: DateTime.now(),
+        orderNumbers: list[idx].orderNumbers,
+        orderIds: list[idx].orderIds,
+        isSellerPaid: list[idx].isSellerPaid,
+      );
+      await DeliveryRepository.saveStoredRemittances(list);
+    } else {
+      list.insert(0, DeliveryCodRemittanceItem(
+        id: remittanceId,
+        driverId: '00000000-0000-0000-0000-000000000003',
+        driverName: 'Vikram Singh (Johari Rider)',
+        amount: 1550.0,
+        status: 'verified',
+        paymentMethod: 'Admin Primary UPI',
+        reference: 'COD-VERIFIED-${DateTime.now().millisecondsSinceEpoch}',
+        createdAt: DateTime.now(),
+        verifiedAt: DateTime.now(),
+        orderIds: orderId != null ? [orderId] : const [],
+      ));
+      await DeliveryRepository.saveStoredRemittances(list);
+    }
+
+    if (_client != null) {
+      try {
+        await _client.from('cod_remittance').update({
+          'status': 'remitted',
+          'remitted_at': DateTime.now().toIso8601String(),
+        }).or('id.eq.$remittanceId,order_id.eq.$orderId');
+      } catch (_) {}
+
+      try {
+        await _client.from('admin_audit_logs').insert({
+          'admin_name': adminName,
+          'action': 'COD_REMITTANCE_VERIFIED',
+          'details': 'Admin verified cash received from rider (Ref: $remittanceId)',
+        });
+      } catch (_) {}
+    }
+
+    return true;
+  }
+
+  Future<bool> disburseCodSellerPayback({
+    required String orderId,
+    required String shopName,
+    required double amount,
+    required String transactionRef,
+    String paymentMethod = 'COD Escrow Payback',
+    String adminName = 'Platform Super Admin',
+  }) async {
+    final success = await paySellerForOrder(
+      orderId: orderId,
+      shopName: shopName,
+      amount: amount,
+      paymentMethod: paymentMethod,
+      transactionRef: transactionRef,
+      adminName: adminName,
+    );
+
+    try {
+      final list = await DeliveryRepository.getStoredRemittances();
+      bool modified = false;
+      for (int i = 0; i < list.length; i++) {
+        if (list[i].orderIds.contains(orderId) || list[i].id == orderId) {
+          list[i] = DeliveryCodRemittanceItem(
+            id: list[i].id,
+            driverId: list[i].driverId,
+            driverName: list[i].driverName,
+            amount: list[i].amount,
+            status: list[i].status,
+            paymentMethod: list[i].paymentMethod,
+            reference: list[i].reference,
+            notes: list[i].notes,
+            createdAt: list[i].createdAt,
+            verifiedAt: list[i].verifiedAt,
+            orderNumbers: list[i].orderNumbers,
+            orderIds: list[i].orderIds,
+            isSellerPaid: true,
+          );
+          modified = true;
+        }
+      }
+      if (modified) {
+        await DeliveryRepository.saveStoredRemittances(list);
+      }
+    } catch (_) {}
+
+    return success;
   }
 
   Future<bool> paySellerForOrder({
@@ -1526,6 +1797,26 @@ class AdminRepository {
     await _persistStatus();
 
     if (_client != null) {
+      try {
+        final profileRes = await _client.from('delivery_partner_profiles').select('bank_account_details').eq('id', driverId).maybeSingle();
+        Map<String, dynamic> bankDetails = {};
+        if (profileRes != null && profileRes['bank_account_details'] is Map) {
+          bankDetails = Map<String, dynamic>.from(profileRes['bank_account_details'] as Map);
+        }
+        bankDetails['salary_record'] = {
+          'month': monthName,
+          'status': 'Paid',
+          'amount': amount,
+          'ref': transactionRef,
+          'method': paymentMethod,
+          'paid_at': now.toIso8601String(),
+          'driver_name': driverName,
+        };
+        await _client.from('delivery_partner_profiles').update({
+          'bank_account_details': bankDetails,
+        }).eq('id', driverId);
+      } catch (_) {}
+
       try {
         await _client.from('admin_audit_logs').insert({
           'admin_name': adminName,

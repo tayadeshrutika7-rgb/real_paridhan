@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
 import '../domain/delivery_task_model.dart';
 import '../domain/delivery_earnings_model.dart';
+import '../domain/delivery_profile_model.dart';
+import '../../admin/data/admin_repository.dart';
 
 class DeliveryRepository {
   final SupabaseClient? _client;
@@ -14,9 +18,39 @@ class DeliveryRepository {
   static bool _simulatedDutyOnline = true;
   static String _simulatedVerificationStatus = 'verified';
   static DeliveryTaskModel? _simulatedActiveTrip;
+  static DeliveryProfileModel _simulatedProfile = const DeliveryProfileModel(
+    id: '00000000-0000-0000-0000-000000000003',
+  );
+
+  static const _kDriverCodRemittancesKey = 'paridhan_driver_cod_remittances_v1';
+  static final List<DeliveryCodRemittanceItem> _locallySubmittedRemittances = [];
+
+  static Future<List<DeliveryCodRemittanceItem>> getStoredRemittances() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString(_kDriverCodRemittancesKey);
+      if (str != null && str.isNotEmpty) {
+        final list = (jsonDecode(str) as List?) ?? [];
+        return list
+            .map((m) => DeliveryCodRemittanceItem.fromMap(Map<String, dynamic>.from(m)))
+            .toList();
+      }
+    } catch (_) {}
+    return List.from(_locallySubmittedRemittances);
+  }
+
+  static Future<void> saveStoredRemittances(List<DeliveryCodRemittanceItem> list) async {
+    _locallySubmittedRemittances.clear();
+    _locallySubmittedRemittances.addAll(list);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kDriverCodRemittancesKey, jsonEncode(list.map((e) => e.toMap()).toList()));
+    } catch (_) {}
+  }
 
   static void setSimulatedVerificationStatus(String status) {
     _simulatedVerificationStatus = status;
+    _simulatedProfile = _simulatedProfile.copyWith(verificationStatus: status);
   }
 
   Future<String> getDriverVerificationStatus(String driverId) async {
@@ -24,14 +58,79 @@ class DeliveryRepository {
 
     try {
       final res = await _client
-          .from('delivery_partner_profile')
+          .from('delivery_partner_profiles')
           .select('verification_status')
           .eq('id', driverId)
           .maybeSingle();
 
-      return res?['verification_status'] as String? ?? 'pending';
+      return res?['verification_status'] as String? ?? _simulatedVerificationStatus;
     } catch (_) {
       return _simulatedVerificationStatus;
+    }
+  }
+
+  /// Fetch full driver profile including bank details, UPI, and Aadhaar
+  Future<DeliveryProfileModel> getDriverProfile(String driverId) async {
+    if (_client == null) {
+      return _simulatedProfile;
+    }
+
+    try {
+      final res = await _client
+          .from('delivery_partner_profiles')
+          .select('*, profiles:id(full_name, phone, email)')
+          .eq('id', driverId)
+          .maybeSingle();
+
+      if (res != null) {
+        final profile = DeliveryProfileModel.fromMap(res as Map<String, dynamic>);
+        _simulatedProfile = profile;
+        _simulatedVerificationStatus = profile.verificationStatus;
+        return profile;
+      }
+      return _simulatedProfile;
+    } catch (_) {
+      return _simulatedProfile;
+    }
+  }
+
+  /// Update driver profile, vehicle, and submit Bank / UPI / Aadhaar KYC for Admin Verification
+  Future<bool> updateDriverProfileAndKyc(DeliveryProfileModel profile) async {
+    _simulatedProfile = profile.copyWith(verificationStatus: 'pending');
+    _simulatedVerificationStatus = 'pending';
+    _simulatedDutyOnline = false; // Cannot be online while pending
+
+    if (_client == null) {
+      return true;
+    }
+
+    try {
+      final now = DateTime.now().toIso8601String();
+
+      // 1. Update delivery_partner_profiles with bank details JSONB
+      await _client.from('delivery_partner_profiles').upsert({
+        'id': profile.id,
+        'vehicle_type': profile.vehicleType,
+        'vehicle_number': profile.vehicleNumber,
+        'driving_license_url': profile.drivingLicenseUrl,
+        'verification_status': 'pending', // Resubmission requires Admin review
+        'bank_account_details': profile.toBankDetailsJson(),
+        'updated_at': now,
+      });
+
+      // 2. Update profiles table
+      try {
+        await _client.from('profiles').update({
+          'full_name': profile.fullName,
+          'phone': profile.phone,
+          'updated_at': now,
+        }).eq('id', profile.id);
+      } catch (_) {}
+
+      return true;
+    } catch (e) {
+      debugPrint('[DeliveryRepository] updateDriverProfileAndKyc error: $e');
+      return true;
     }
   }
   static final List<DeliveryTaskModel> _simulatedAvailableRequests = [
@@ -144,6 +243,8 @@ class DeliveryRepository {
   /// Reset simulated in-memory state (useful for tests)
   static void resetSimulatedState() {
     _simulatedDutyOnline = true;
+    _simulatedVerificationStatus = 'verified';
+    _simulatedProfile = _simulatedProfile.copyWith(verificationStatus: 'verified');
     _simulatedActiveTrip = null;
     _simulatedEarnings = DeliveryEarningsModel(
       todayTripsCount: 4,
@@ -190,13 +291,21 @@ class DeliveryRepository {
     double lat = 26.9124,
     double lng = 75.7873,
   }) async {
+    if (isOnline) {
+      final vStatus = await getDriverVerificationStatus(driverId);
+      if (vStatus != 'verified' && vStatus != 'approved') {
+        _simulatedDutyOnline = false;
+        return false; // Cannot go online without Admin approval!
+      }
+    }
+
     _simulatedDutyOnline = isOnline;
 
     if (_client == null) return isOnline;
 
     try {
       await _client.from('delivery_partner_profiles').upsert({
-        'user_id': driverId,
+        'id': driverId,
         'is_online': isOnline,
         'current_latitude': lat,
         'current_longitude': lng,
@@ -209,11 +318,17 @@ class DeliveryRepository {
   }
 
   /// Fetch incoming order requests within dispatch radar
+  /// STRICT: Without Admin approval, delivery person CANNOT get or accept orders!
   Future<List<DeliveryTaskModel>> getIncomingRequests({
     required String driverId,
     double lat = 26.9124,
     double lng = 75.7873,
   }) async {
+    final vStatus = await getDriverVerificationStatus(driverId);
+    if (vStatus != 'verified' && vStatus != 'approved') {
+      return []; // Unapproved driver cannot receive orders
+    }
+
     if (_client == null) {
       if (!_simulatedDutyOnline) return [];
       return List.unmodifiable(_simulatedAvailableRequests);
@@ -490,7 +605,7 @@ class DeliveryRepository {
             .maybeSingle();
       }
 
-      String? correctOtp = orderRes?['delivery_otp']?.toString()?.trim();
+      String? correctOtp = orderRes?['delivery_otp']?.toString().trim();
 
       // 2. Fallback: check deliveries table if not found on orders
       if (correctOtp == null || correctOtp.isEmpty) {
@@ -499,7 +614,7 @@ class DeliveryRepository {
             .select('delivery_otp')
             .or('id.eq.$taskId,order_id.eq.$cleanOrderId,order_id.eq.$orderId')
             .maybeSingle();
-        correctOtp = delivRes?['delivery_otp']?.toString()?.trim();
+        correctOtp = delivRes?['delivery_otp']?.toString().trim();
       }
 
       // 3. Fallback: check active in-memory task
@@ -651,10 +766,38 @@ class DeliveryRepository {
     }
   }
 
-  /// Get driver earnings & COD summary including penalties
+  /// Get driver earnings & COD summary including penalties and remittances
   Future<DeliveryEarningsModel> getEarningsSummary(String driverId) async {
+    final storedRemittances = await getStoredRemittances();
+    final driverRemittances = storedRemittances
+        .where((r) => r.driverId == driverId || r.driverId.isEmpty || driverId == '00000000-0000-0000-0000-000000000003')
+        .toList();
+    final totalRemitted = driverRemittances.fold<double>(0.0, (acc, r) => acc + r.amount);
+
     if (_client == null) {
-      return _simulatedEarnings;
+      await AdminRepository.loadPersistedStatus();
+      final paidSalaryEntry = AdminRepository.locallyPaidDriverSalaries.entries.firstWhere(
+        (e) => e.key.startsWith('${driverId}_') || e.value['driver_id'] == driverId,
+        orElse: () => const MapEntry('', {}),
+      );
+      final isPaid = paidSalaryEntry.key.isNotEmpty;
+      final accruedSalary = _simulatedEarnings.todayNetEarnings;
+      final pendingCod = (_simulatedEarnings.todayCodCollected - totalRemitted).clamp(0.0, double.infinity);
+
+      return _simulatedEarnings.copyWith(
+        pendingCodRemittance: pendingCod,
+        remittances: driverRemittances,
+        monthlySalaryStatus: isPaid ? 'Paid' : 'Pending',
+        monthlySalaryAmount: isPaid
+            ? ((paidSalaryEntry.value['amount'] as num?)?.toDouble() ?? accruedSalary)
+            : accruedSalary,
+        monthlySalaryRef: paidSalaryEntry.value['ref']?.toString(),
+        monthlySalaryMethod: paidSalaryEntry.value['method']?.toString(),
+        monthlySalaryPaidAt: paidSalaryEntry.value['paidAt'] != null
+            ? DateTime.tryParse(paidSalaryEntry.value['paidAt'].toString())
+            : null,
+        monthlySalaryTripsCount: _simulatedEarnings.todayTripsCount,
+      );
     }
 
     try {
@@ -672,11 +815,12 @@ class DeliveryRepository {
       final trips = <DeliveryTripSummary>[];
 
       for (final item in list) {
+        final order = item['order'] as Map<String, dynamic>? ?? {};
         final payout = (item['delivery_payout'] as num?)?.toDouble() ??
             (item['delivery_fee'] as num?)?.toDouble() ??
-            85.0;
+            (order['delivery_fee'] as num?)?.toDouble() ??
+            0.0;
         final dist = (item['distance_km'] as num?)?.toDouble() ?? 2.5;
-        final order = item['order'] as Map<String, dynamic>? ?? {};
         final isCod = order['payment_method'] == 'cod';
         final codAmt = isCod ? ((order['total_amount'] as num?)?.toDouble() ?? 0.0) : 0.0;
 
@@ -721,6 +865,50 @@ class DeliveryRepository {
         }
       } catch (_) {}
 
+      // Fetch real salary ledger record for this driver from Supabase & Admin cache
+      Map<String, dynamic>? salaryRecord;
+      try {
+        final profRes = await _client
+            .from('delivery_partner_profiles')
+            .select('bank_account_details')
+            .eq('id', driverId)
+            .maybeSingle();
+        if (profRes != null && profRes['bank_account_details'] is Map) {
+          final bad = profRes['bank_account_details'] as Map;
+          if (bad['salary_record'] is Map) {
+            salaryRecord = Map<String, dynamic>.from(bad['salary_record'] as Map);
+          }
+        }
+      } catch (_) {}
+
+      await AdminRepository.loadPersistedStatus();
+      final paidSalaryEntry = AdminRepository.locallyPaidDriverSalaries.entries.firstWhere(
+        (e) => e.key.startsWith('${driverId}_') || e.value['driver_id'] == driverId,
+        orElse: () => const MapEntry('', {}),
+      );
+
+      final isPaid = (salaryRecord != null && salaryRecord['status']?.toString().toLowerCase() == 'paid') ||
+          paidSalaryEntry.key.isNotEmpty;
+
+      final salaryMonth = salaryRecord?['month']?.toString() ??
+          paidSalaryEntry.value['month']?.toString() ??
+          'October 2026';
+      final netAccrued = (baseTotal - totalPenalties).clamp(0.0, double.infinity);
+      final salaryAmount = isPaid
+          ? ((salaryRecord?['amount'] as num?)?.toDouble() ??
+              (paidSalaryEntry.value['amount'] as num?)?.toDouble() ??
+              netAccrued)
+          : netAccrued;
+      final salaryRef = salaryRecord?['ref']?.toString() ?? paidSalaryEntry.value['ref']?.toString();
+      final salaryMethod = salaryRecord?['method']?.toString() ?? paidSalaryEntry.value['method']?.toString();
+      final salaryPaidAt = salaryRecord?['paid_at'] != null
+          ? DateTime.tryParse(salaryRecord!['paid_at'].toString())
+          : (paidSalaryEntry.value['paidAt'] != null
+              ? DateTime.tryParse(paidSalaryEntry.value['paidAt'].toString())
+              : null);
+
+      final pendingCod = (codTotal - totalRemitted).clamp(0.0, double.infinity);
+
       return DeliveryEarningsModel(
         todayTripsCount: trips.length,
         todayBaseEarnings: baseTotal,
@@ -729,13 +917,91 @@ class DeliveryRepository {
         todayPenalties: totalPenalties,
         penaltiesCount: penalties.length,
         todayCodCollected: codTotal,
-        pendingCodRemittance: codTotal,
+        pendingCodRemittance: pendingCod,
         totalDistanceTodayKm: totalDistance,
         trips: trips,
         penalties: penalties,
+        remittances: driverRemittances,
+        monthlySalaryMonth: salaryMonth,
+        monthlySalaryStatus: isPaid ? 'Paid' : 'Pending',
+        monthlySalaryAmount: salaryAmount,
+        monthlySalaryRef: salaryRef,
+        monthlySalaryMethod: salaryMethod,
+        monthlySalaryPaidAt: salaryPaidAt,
+        monthlySalaryTripsCount: trips.length,
       );
     } catch (_) {
       return const DeliveryEarningsModel();
     }
+  }
+
+  /// Remit physical COD cash back to Admin
+  Future<bool> submitCodRemittance({
+    required String driverId,
+    required String driverName,
+    required double amount,
+    required String paymentMethod,
+    required String reference,
+    String? notes,
+    List<String>? orderIds,
+    List<String>? orderNumbers,
+  }) async {
+    final now = DateTime.now();
+    final remittanceItem = DeliveryCodRemittanceItem(
+      id: 'rem-${now.millisecondsSinceEpoch}',
+      driverId: driverId,
+      driverName: driverName,
+      amount: amount,
+      status: 'pending', // Pending Admin Verification
+      paymentMethod: paymentMethod,
+      reference: reference,
+      notes: notes,
+      createdAt: now,
+      orderIds: orderIds ?? const [],
+      orderNumbers: orderNumbers ?? const [],
+    );
+
+    final stored = await getStoredRemittances();
+    stored.insert(0, remittanceItem);
+    await saveStoredRemittances(stored);
+
+    // Update in-memory simulated state
+    final remittedSum = stored
+        .where((r) => r.driverId == driverId || driverId.isEmpty || driverId == '00000000-0000-0000-0000-000000000003')
+        .fold<double>(0.0, (acc, r) => acc + r.amount);
+    final remainingPending = (_simulatedEarnings.todayCodCollected - remittedSum).clamp(0.0, double.infinity);
+
+    _simulatedEarnings = _simulatedEarnings.copyWith(
+      pendingCodRemittance: remainingPending,
+      remittances: stored
+          .where((r) => r.driverId == driverId || driverId.isEmpty || driverId == '00000000-0000-0000-0000-000000000003')
+          .toList(),
+    );
+
+    // Push to Supabase if connected
+    if (_client != null) {
+      try {
+        await _client.from('cod_remittance').insert({
+          'delivery_partner_id': driverId.isNotEmpty ? driverId : null,
+          'amount': amount,
+          'status': 'pending',
+          if (orderIds != null && orderIds.isNotEmpty) 'order_id': orderIds.first,
+        });
+      } catch (e) {
+        debugPrint('[DeliveryRepository] Supabase cod_remittance insert error: $e');
+      }
+
+      try {
+        await _client.from('admin_audit_logs').insert({
+          'admin_name': driverName,
+          'action': 'COD_REMITTANCE_SUBMITTED',
+          'target_type': 'delivery_partner',
+          'target_id': driverId,
+          'details': 'Rider submitted COD remittance ₹$amount via $paymentMethod (Ref: $reference)',
+        });
+      } catch (_) {}
+    }
+
+    return true;
   }
 }

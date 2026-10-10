@@ -4,6 +4,7 @@ import '../data/delivery_repository.dart';
 import '../domain/delivery_task_model.dart';
 import '../domain/delivery_earnings_model.dart';
 import '../domain/delivery_route_batch_model.dart';
+import '../domain/delivery_profile_model.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/notifications/domain/app_notification_model.dart';
 import '../../../core/notifications/presentation/role_notification_controller.dart';
@@ -12,6 +13,7 @@ class DeliveryState {
   final bool isOnline;
   final bool isLoading;
   final String verificationStatus; // 'verified', 'pending', 'rejected'
+  final DeliveryProfileModel? profile;
   final DeliveryTaskModel? activeTrip;
   final List<DeliveryTaskModel> incomingRequests;
   final List<DeliveryRouteBatchModel> availableBatches;
@@ -23,6 +25,7 @@ class DeliveryState {
     this.isOnline = true,
     this.isLoading = false,
     this.verificationStatus = 'verified',
+    this.profile,
     this.activeTrip,
     this.incomingRequests = const [],
     this.availableBatches = const [],
@@ -31,12 +34,13 @@ class DeliveryState {
     this.errorMessage,
   });
 
-  bool get isVerified => verificationStatus == 'verified';
+  bool get isVerified => verificationStatus == 'verified' || verificationStatus == 'approved';
 
   DeliveryState copyWith({
     bool? isOnline,
     bool? isLoading,
     String? verificationStatus,
+    DeliveryProfileModel? profile,
     DeliveryTaskModel? activeTrip,
     bool clearActiveTrip = false,
     List<DeliveryTaskModel>? incomingRequests,
@@ -51,6 +55,7 @@ class DeliveryState {
       isOnline: isOnline ?? this.isOnline,
       isLoading: isLoading ?? this.isLoading,
       verificationStatus: verificationStatus ?? this.verificationStatus,
+      profile: profile ?? this.profile,
       activeTrip: clearActiveTrip ? null : (activeTrip ?? this.activeTrip),
       incomingRequests: incomingRequests ?? this.incomingRequests,
       availableBatches: availableBatches ?? this.availableBatches,
@@ -73,16 +78,21 @@ class DeliveryNotifier extends Notifier<DeliveryState> {
 
   String get _currentDriverId {
     final user = ref.read(authProvider).user;
-    return user?.id ?? 'delivery-test-driver';
+    return user?.id ?? '00000000-0000-0000-0000-000000000003';
   }
 
   Future<void> loadDashboard() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final verification = await _repository.getDriverVerificationStatus(_currentDriverId);
+      final profile = await _repository.getDriverProfile(_currentDriverId);
+      final verification = profile.verificationStatus;
+      final isVerified = verification == 'verified' || verification == 'approved';
+
       final active = await _repository.getActiveTrip(_currentDriverId);
       final earnings = await _repository.getEarningsSummary(_currentDriverId);
-      final incoming = state.isOnline
+
+      // Without admin acceptance, delivery person can't get orders
+      final incoming = (state.isOnline && isVerified)
           ? await _repository.getIncomingRequests(driverId: _currentDriverId)
           : <DeliveryTaskModel>[];
 
@@ -94,6 +104,8 @@ class DeliveryNotifier extends Notifier<DeliveryState> {
       state = state.copyWith(
         isLoading: false,
         verificationStatus: verification,
+        profile: profile,
+        isOnline: isVerified ? state.isOnline : false,
         activeTrip: active,
         earnings: earnings,
         incomingRequests: incoming,
@@ -109,26 +121,45 @@ class DeliveryNotifier extends Notifier<DeliveryState> {
   }
 
   Future<void> toggleDuty(bool isOnline) async {
+    // STRICT GATING: Without Admin acceptance, delivery person cannot go online
+    if (isOnline && !state.isVerified) {
+      state = state.copyWith(
+        isOnline: false,
+        errorMessage: 'Cannot go online: Super Admin verification required before accepting orders.',
+      );
+      return;
+    }
+
     state = state.copyWith(isOnline: isOnline);
-    await _repository.setDutyStatus(
+    final confirmed = await _repository.setDutyStatus(
       isOnline: isOnline,
       driverId: _currentDriverId,
     );
 
-    if (isOnline) {
+    if (confirmed && isOnline && state.isVerified) {
       final incoming = await _repository.getIncomingRequests(driverId: _currentDriverId);
       final batches = DeliveryRouteBatchModel.findSamePathBatches(incoming);
       state = state.copyWith(
+        isOnline: true,
         incomingRequests: incoming,
         availableBatches: batches,
       );
     } else {
       state = state.copyWith(
+        isOnline: false,
         incomingRequests: [],
         availableBatches: [],
         clearOnTheWayOrder: true,
       );
     }
+  }
+
+  /// Update driver profile, vehicle, and submit Bank / UPI / Aadhaar KYC for Admin Verification
+  Future<bool> saveProfileAndKyc(DeliveryProfileModel profile) async {
+    state = state.copyWith(isLoading: true);
+    final success = await _repository.updateDriverProfileAndKyc(profile);
+    await loadDashboard();
+    return success;
   }
 
   Future<bool> acceptIncomingTask(String taskId) async {
@@ -459,6 +490,56 @@ class DeliveryNotifier extends Notifier<DeliveryState> {
       return true;
     } else {
       state = state.copyWith(isLoading: false, errorMessage: 'Failed to record customer unavailability.');
+      return false;
+    }
+  }
+
+  /// Remit physical Cash on Delivery (COD) collected to Admin
+  Future<bool> submitCodRemittance({
+    required double amount,
+    required String paymentMethod,
+    required String reference,
+    String? notes,
+  }) async {
+    state = state.copyWith(isLoading: true);
+    final driverId = _currentDriverId;
+    final driverName = state.profile?.fullName ?? 'Vikram Singh (Johari Rider)';
+
+    final ok = await _repository.submitCodRemittance(
+      driverId: driverId,
+      driverName: driverName,
+      amount: amount,
+      paymentMethod: paymentMethod,
+      reference: reference,
+      notes: notes,
+    );
+
+    if (ok) {
+      final updatedEarnings = await _repository.getEarningsSummary(driverId);
+      state = state.copyWith(
+        isLoading: false,
+        earnings: updatedEarnings,
+      );
+
+      // 1. Delivery notification
+      ref.read(roleNotificationProvider(UserRole.delivery).notifier).postNotification(
+        title: 'COD Remittance Submitted 🏦',
+        body: 'Physical cash remittance of ₹${amount.toStringAsFixed(2)} submitted to Admin (Ref: $reference).',
+        category: NotificationCategory.trip,
+        deepLink: '/delivery/earnings',
+      );
+
+      // 2. Admin notification
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'New COD Cash Remittance Received 💰',
+        body: 'Driver $driverName submitted ₹${amount.toStringAsFixed(2)} via $paymentMethod (Ref: $reference). Awaiting approval & seller payback.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin',
+      );
+
+      return true;
+    } else {
+      state = state.copyWith(isLoading: false, errorMessage: 'Failed to submit COD remittance.');
       return false;
     }
   }

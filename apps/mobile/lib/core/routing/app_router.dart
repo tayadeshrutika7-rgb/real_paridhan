@@ -27,6 +27,7 @@ import '../../features/seller/presentation/seller_ad_request_screen.dart';
 import '../../features/delivery/presentation/delivery_home_screen.dart';
 import '../../features/delivery/presentation/active_trip_screen.dart';
 import '../../features/delivery/presentation/delivery_earnings_screen.dart';
+import '../../features/delivery/presentation/delivery_profile_screen.dart';
 import '../../features/admin/presentation/admin_dashboard_screen.dart';
 import '../../features/admin/presentation/admin_boutique_verification_screen.dart';
 import '../../features/admin/presentation/admin_analytics_screen.dart';
@@ -240,6 +241,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/delivery/earnings',
         builder: (context, state) => const DeliveryEarningsScreen(),
+      ),
+      GoRoute(
+        path: '/delivery/profile',
+        builder: (context, state) => const DeliveryProfileScreen(),
       ),
       // Super Admin Operations Routes
       GoRoute(

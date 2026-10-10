@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/network/supabase_client.dart';
 import '../../../core/utils/image_compressor.dart';
 import '../domain/shop_model.dart';
@@ -310,7 +311,7 @@ class SellerRepository {
       }).toList();
     } catch (e) {
       debugPrint('[SellerRepository] Error fetching products: $e');
-      return List.from(_mockProducts);
+      return [];
     }
   }
 
@@ -475,11 +476,32 @@ class SellerRepository {
     try {
       final res = await client
           .from('orders')
-          .select('id, order_number, status, subtotal, total_amount, seller_payout_amount, payment_status, created_at')
+          .select('id, order_number, status, subtotal, total_amount, seller_payout_amount, payment_status, created_at, seller_payout_status, seller_payout_ref, seller_paid_at, seller_payment_method')
           .eq('shop_id', shopId)
           .order('created_at', ascending: false);
       if (res is List) {
-        return res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final ordersList = res.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+        // Merge locally paid payout records if available from admin disbursals
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final payoutsJson = prefs.getString('paridhan_admin_paid_order_payouts_v1');
+          if (payoutsJson != null && payoutsJson.isNotEmpty) {
+            final localPayouts = jsonDecode(payoutsJson) as Map<String, dynamic>;
+            for (var order in ordersList) {
+              final oid = order['id']?.toString() ?? '';
+              if (localPayouts.containsKey(oid)) {
+                final lp = localPayouts[oid] as Map<String, dynamic>;
+                order['seller_payout_status'] = 'paid';
+                order['seller_payout_ref'] = lp['ref'] ?? order['seller_payout_ref'];
+                order['seller_paid_at'] = lp['paidAt'] ?? order['seller_paid_at'];
+                order['seller_payment_method'] = lp['method'] ?? order['seller_payment_method'];
+              }
+            }
+          }
+        } catch (_) {}
+
+        return ordersList;
       }
       return [];
     } catch (e) {
