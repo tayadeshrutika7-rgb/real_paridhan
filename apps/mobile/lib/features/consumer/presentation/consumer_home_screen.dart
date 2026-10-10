@@ -2139,11 +2139,7 @@ class _ConsumerHomeScreenState extends ConsumerState<ConsumerHomeScreen> {
             isSelected: _selectedBottomNavIndex == 3,
             onTap: () {
               setState(() => _selectedBottomNavIndex = 3);
-              if (authState.isGuest) {
-                context.push('/login');
-              } else {
-                context.push('/orders');
-              }
+              context.push('/profile');
             },
           ),
           _buildNavItem(

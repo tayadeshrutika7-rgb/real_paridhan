@@ -97,6 +97,21 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_rounded),
+            tooltip: 'Sync Radar & KYC Status',
+            onPressed: () async {
+              await ref.read(deliveryProvider.notifier).loadDashboard();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Delivery radar and KYC status refreshed!'),
+                    duration: Duration(milliseconds: 900),
+                  ),
+                );
+              }
+            },
+          ),
           const RoleNotificationBadge(role: UserRole.delivery),
           IconButton(
             icon: const Icon(Icons.account_balance_wallet_outlined),

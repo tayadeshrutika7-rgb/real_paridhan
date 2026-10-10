@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
@@ -31,6 +33,20 @@ class AdminRepository {
     _locallyApprovedDriverIds.clear();
     _locallyRejectedDriverIds.clear();
     _initSimulatedBoutiques();
+  }
+
+  static void clearLocallyCachedStatusForShop(String shopId, [String? sellerId, String? shopName]) {
+    _locallyApprovedShopIds.remove(shopId);
+    _locallyRejectedShopIds.remove(shopId);
+    if (sellerId != null && sellerId.isNotEmpty) {
+      _locallyApprovedShopIds.remove(sellerId);
+      _locallyRejectedShopIds.remove(sellerId);
+    }
+    if (shopName != null && shopName.isNotEmpty) {
+      _locallyApprovedShopIds.remove(shopName);
+      _locallyRejectedShopIds.remove(shopName);
+    }
+    _persistStatus();
   }
 
   static Future<void> _loadPersistedStatus() async {
@@ -543,6 +559,7 @@ class AdminRepository {
         pendingOrdersCount: 6,
         openDisputesCount: _simulatedDisputes.where((d) => !d.isResolved).length,
         pendingBoutiques: pendingList,
+        allBoutiques: _simulatedBoutiques,
         sellers: sellersList,
         customers: _simulatedCustomers,
         deliveryPartners: _simulatedFleet,
@@ -559,163 +576,159 @@ class AdminRepository {
       );
     }
 
+    // ─── 1. SHOPS / KYC (isolated – must not be lost if orders fail) ─────────
+    List<BoutiqueVerificationItem> dbShops = [];
+    List<BoutiqueVerificationItem> currentPending = [];
+    List<BoutiqueVerificationItem> currentApproved = [];
+
     try {
-      // 1. Fetch Shops
-      final shopsRes = await _client.from('shops').select('*');
-      final dbShops = (shopsRes as List).map((m) {
+      final shopsRes = await _client!.from('shops').select('*').order('updated_at', ascending: false);
+      final Map<String, BoutiqueVerificationItem> uniqueShops = {};
+
+      for (final m in (shopsRes as List)) {
         final item = BoutiqueVerificationItem.fromMap(m as Map<String, dynamic>);
-        if (_locallyApprovedShopIds.contains(item.id) || _locallyApprovedShopIds.contains(item.shopName)) {
-          return item.copyWith(
-            status: KycStatus.approved,
-            verifiedAt: DateTime.now(),
-          );
+
+        // If the live database row has status 'pending' or kyc_status 'pending', it is an active verification request!
+        // Stale local storage approvals must never override live pending requests from the database.
+        final isDbPending = (m['status'] == 'pending' || m['kyc_status'] == 'pending') && m['is_verified'] != true;
+        if (isDbPending) {
+          _locallyApprovedShopIds.remove(item.id);
+          if (item.sellerId.isNotEmpty) _locallyApprovedShopIds.remove(item.sellerId);
+          _locallyApprovedShopIds.remove(item.shopName);
         }
-        if (_locallyRejectedShopIds.contains(item.id) || _locallyRejectedShopIds.contains(item.shopName)) {
-          return item.copyWith(
-            status: KycStatus.rejected,
-            rejectionReason: item.rejectionReason ?? 'Rejected by Admin',
-          );
+
+        final isApprovedLocal = !isDbPending && (_locallyApprovedShopIds.contains(item.id) ||
+            (item.sellerId.isNotEmpty && _locallyApprovedShopIds.contains(item.sellerId)) ||
+            _locallyApprovedShopIds.contains(item.shopName));
+        final isRejectedLocal = _locallyRejectedShopIds.contains(item.id) ||
+            (item.sellerId.isNotEmpty && _locallyRejectedShopIds.contains(item.sellerId)) ||
+            _locallyRejectedShopIds.contains(item.shopName);
+
+        final adjustedItem = isDbPending
+            ? item.copyWith(status: KycStatus.pending)
+            : (isApprovedLocal
+                ? item.copyWith(status: KycStatus.approved, verifiedAt: DateTime.now())
+                : (isRejectedLocal
+                    ? item.copyWith(status: KycStatus.rejected, rejectionReason: item.rejectionReason ?? 'Rejected by Admin')
+                    : item));
+
+        final groupKey = item.sellerId.isNotEmpty ? item.sellerId : item.id;
+        // Keep the newest updated record per seller
+        if (!uniqueShops.containsKey(groupKey)) {
+          uniqueShops[groupKey] = adjustedItem;
         }
-        return item;
+      }
+
+      dbShops = uniqueShops.values.toList();
+      currentPending = dbShops.where((s) => s.status == KycStatus.pending).toList();
+      currentApproved = dbShops.where((s) => s.status == KycStatus.approved).toList();
+    } catch (e) {
+      // Shop fetch failed – fall back to simulated data
+      dbShops = List.from(_simulatedBoutiques);
+      currentPending = _simulatedBoutiques.where((b) {
+        if (_locallyApprovedShopIds.contains(b.id)) return false;
+        if (_locallyRejectedShopIds.contains(b.id)) return false;
+        return b.status == KycStatus.pending;
       }).toList();
+      currentApproved = _simulatedBoutiques.where((b) =>
+          b.status == KycStatus.approved || _locallyApprovedShopIds.contains(b.id)).toList();
+    }
 
-      final currentPending = dbShops.where((s) => s.status == KycStatus.pending).toList();
-      final currentApproved = dbShops.where((s) => s.status == KycStatus.approved).toList();
-
-      // 2. Fetch Orders
-      final ordersRes = await _client.from('orders').select('*');
-      double dbGmv = 0.0;
-      double dbCommission = 0.0;
-      double dbDeliveryFees = 0.0;
-      final ordersList = ordersRes as List;
-      final parsedOrders = <AdminOrderItem>[];
-
-      for (final o in ordersList) {
+    // ─── 2. ORDERS ───────────────────────────────────────────────────────────
+    double dbGmv = 0.0;
+    double dbCommission = 0.0;
+    double dbDeliveryFees = 0.0;
+    final parsedOrders = <AdminOrderItem>[];
+    try {
+      final ordersRes = await _client!.from('orders').select('*');
+      for (final o in (ordersRes as List)) {
         final amount = (o['total'] as num?)?.toDouble() ?? (o['total_amount'] as num?)?.toDouble() ?? 0.0;
         final subtotal = (o['subtotal'] as num?)?.toDouble() ?? amount;
         final comm = (o['commission_amount'] as num?)?.toDouble() ?? (subtotal * 0.10);
         final fee = (o['delivery_fee'] as num?)?.toDouble() ?? 30.0;
-
         dbGmv += amount;
         dbCommission += comm;
         dbDeliveryFees += fee;
-
         parsedOrders.add(AdminOrderItem.fromMap(o as Map<String, dynamic>));
       }
+    } catch (_) {}
+    if (dbGmv == 0.0) dbGmv = defaultGmv;
+    if (dbCommission == 0.0) dbCommission = dbGmv * (commissionRate / 100);
+    if (dbDeliveryFees == 0.0) dbDeliveryFees = defaultDeliveryCharges;
 
-      if (dbGmv == 0.0) dbGmv = defaultGmv;
-      if (dbCommission == 0.0) dbCommission = dbGmv * (commissionRate / 100);
-      if (dbDeliveryFees == 0.0) dbDeliveryFees = defaultDeliveryCharges;
-
-      // 3. Fetch Advertisements Revenue
-      double dbAdRev = 0.0;
-      try {
-        final adsRes = await _client.from('advertisements').select('budget, status');
-        for (final a in adsRes as List) {
-          if (a['status'] == 'approved' || a['status'] == 'live' || a['status'] == 'completed') {
-            dbAdRev += (a['budget'] as num?)?.toDouble() ?? 0.0;
-          }
+    // ─── 3. ADVERTISEMENTS ───────────────────────────────────────────────────
+    double dbAdRev = 0.0;
+    try {
+      final adsRes = await _client!.from('advertisements').select('budget, status');
+      for (final a in (adsRes as List)) {
+        if (a['status'] == 'approved' || a['status'] == 'live' || a['status'] == 'completed') {
+          dbAdRev += (a['budget'] as num?)?.toDouble() ?? 0.0;
         }
-      } catch (_) {}
-      if (dbAdRev == 0.0) dbAdRev = defaultAdRevenue;
-
-      // 4. Fetch Returns / Disputes
-      double dbRefunds = 0.0;
-      final parsedDisputes = <DisputeTicket>[];
-      try {
-        final retRes = await _client.from('returns_refunds').select('*');
-        for (final r in retRes as List) {
-          final isRefundDone = r['status'] == 'refunded' || r['status'] == 'resolved';
-          if (isRefundDone) {
-            dbRefunds += (r['refund_amount'] as num?)?.toDouble() ?? 0.0;
-          }
-          parsedDisputes.add(DisputeTicket.fromMap(r as Map<String, dynamic>));
-        }
-      } catch (_) {}
-      if (dbRefunds == 0.0 || dbRefunds > dbGmv * 0.08) {
-        dbRefunds = (dbGmv * 0.025).clamp(250.0, 1500.0);
       }
-      if (parsedDisputes.isEmpty) parsedDisputes.addAll(_simulatedDisputes);
+    } catch (_) {}
+    if (dbAdRev == 0.0) dbAdRev = defaultAdRevenue;
 
-      // 5. Fetch Audit Logs
-      final parsedLogs = <AdminAuditLogItem>[];
-      try {
-        final logsRes = await _client.from('admin_audit_logs').select('*').order('created_at', ascending: false).limit(50);
-        for (final l in logsRes as List) {
-          parsedLogs.add(AdminAuditLogItem.fromMap(l as Map<String, dynamic>));
-        }
-      } catch (_) {}
-      if (parsedLogs.isEmpty) parsedLogs.addAll(_simulatedAuditLogs);
-
-      return AdminMetricsModel(
-        totalGmv: dbGmv,
-        platformCommissionRate: commissionRate,
-        platformRevenue: dbCommission,
-        totalCommissionEarned: dbCommission,
-        totalDeliveryCharges: dbDeliveryFees,
-        gatewayCharges: dbGmv * 0.02,
-        totalRefundsAmount: dbRefunds,
-        totalAdRevenue: dbAdRev,
-        totalOrdersCount: parsedOrders.isNotEmpty ? parsedOrders.length : 162,
-        totalCustomersCount: _simulatedCustomers.length + 180,
-        totalSellersCount: dbShops.length,
-        activeBoutiquesCount: currentApproved.length,
-        pendingKycCount: currentPending.length,
-        suspendedSellersCount: dbShops.where((s) => s.status == KycStatus.rejected).length,
-        onDutyDeliveryFleetCount: 14,
-        totalDeliveryPartnersCount: 22,
-        pendingOrdersCount: parsedOrders.where((o) => o.orderStatus == 'placed' || o.orderStatus == 'pending').length,
-        openDisputesCount: parsedDisputes.where((d) => !d.isResolved).length,
-        pendingBoutiques: currentPending,
-        sellers: sellersList,
-        customers: _simulatedCustomers,
-        deliveryPartners: _simulatedFleet,
-        orders: parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
-        inventoryItems: inventoryItems,
-        zoneMetrics: zoneMetrics,
-        disputes: parsedDisputes,
-        auditLogs: parsedLogs,
-        revenueTrends: revenueTrends,
-        ordersTrends: ordersTrends,
-        categorySalesDistribution: categorySales,
-        orderStatusDistribution: orderStatusDist,
-        paymentMethodDistribution: paymentDist,
-      );
-    } catch (_) {
-      return AdminMetricsModel(
-        totalGmv: defaultGmv,
-        platformCommissionRate: commissionRate,
-        platformRevenue: defaultGmv * (commissionRate / 100),
-        totalCommissionEarned: defaultGmv * (commissionRate / 100),
-        totalDeliveryCharges: defaultDeliveryCharges,
-        gatewayCharges: defaultGatewayCharges,
-        totalRefundsAmount: defaultRefunds,
-        totalAdRevenue: defaultAdRevenue,
-        totalOrdersCount: 162,
-        totalCustomersCount: 184,
-        totalSellersCount: 45,
-        activeBoutiquesCount: 45,
-        pendingKycCount: pendingList.length,
-        onDutyDeliveryFleetCount: 14,
-        totalDeliveryPartnersCount: 22,
-        pendingOrdersCount: 6,
-        openDisputesCount: _simulatedDisputes.where((d) => !d.isResolved).length,
-        pendingBoutiques: pendingList,
-        sellers: sellersList,
-        customers: _simulatedCustomers,
-        deliveryPartners: _simulatedFleet,
-        orders: _simulatedOrders,
-        inventoryItems: inventoryItems,
-        zoneMetrics: zoneMetrics,
-        disputes: _simulatedDisputes,
-        auditLogs: _simulatedAuditLogs,
-        revenueTrends: revenueTrends,
-        ordersTrends: ordersTrends,
-        categorySalesDistribution: categorySales,
-        orderStatusDistribution: orderStatusDist,
-        paymentMethodDistribution: paymentDist,
-      );
+    // ─── 4. RETURNS / DISPUTES ───────────────────────────────────────────────
+    double dbRefunds = 0.0;
+    final parsedDisputes = <DisputeTicket>[];
+    try {
+      final retRes = await _client!.from('returns_refunds').select('*');
+      for (final r in (retRes as List)) {
+        final isRefundDone = r['status'] == 'refunded' || r['status'] == 'resolved';
+        if (isRefundDone) dbRefunds += (r['refund_amount'] as num?)?.toDouble() ?? 0.0;
+        parsedDisputes.add(DisputeTicket.fromMap(r as Map<String, dynamic>));
+      }
+    } catch (_) {}
+    if (dbRefunds == 0.0 || dbRefunds > dbGmv * 0.08) {
+      dbRefunds = (dbGmv * 0.025).clamp(250.0, 1500.0);
     }
+    if (parsedDisputes.isEmpty) parsedDisputes.addAll(_simulatedDisputes);
+
+    // ─── 5. AUDIT LOGS ───────────────────────────────────────────────────────
+    final parsedLogs = <AdminAuditLogItem>[];
+    try {
+      final logsRes = await _client!.from('admin_audit_logs').select('*').order('created_at', ascending: false).limit(50);
+      for (final l in (logsRes as List)) {
+        parsedLogs.add(AdminAuditLogItem.fromMap(l as Map<String, dynamic>));
+      }
+    } catch (_) {}
+    if (parsedLogs.isEmpty) parsedLogs.addAll(_simulatedAuditLogs);
+
+    return AdminMetricsModel(
+      totalGmv: dbGmv,
+      platformCommissionRate: commissionRate,
+      platformRevenue: dbCommission,
+      totalCommissionEarned: dbCommission,
+      totalDeliveryCharges: dbDeliveryFees,
+      gatewayCharges: dbGmv * 0.02,
+      totalRefundsAmount: dbRefunds,
+      totalAdRevenue: dbAdRev,
+      totalOrdersCount: parsedOrders.isNotEmpty ? parsedOrders.length : 162,
+      totalCustomersCount: _simulatedCustomers.length + 180,
+      totalSellersCount: dbShops.length,
+      activeBoutiquesCount: currentApproved.length,
+      pendingKycCount: currentPending.length,
+      suspendedSellersCount: dbShops.where((s) => s.status == KycStatus.rejected).length,
+      onDutyDeliveryFleetCount: 14,
+      totalDeliveryPartnersCount: 22,
+      pendingOrdersCount: parsedOrders.where((o) => o.orderStatus == 'placed' || o.orderStatus == 'pending').length,
+      openDisputesCount: parsedDisputes.where((d) => !d.isResolved).length,
+      pendingBoutiques: currentPending,
+      allBoutiques: dbShops,
+      sellers: sellersList,
+      customers: _simulatedCustomers,
+      deliveryPartners: _simulatedFleet,
+      orders: parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
+      inventoryItems: inventoryItems,
+      zoneMetrics: zoneMetrics,
+      disputes: parsedDisputes,
+      auditLogs: parsedLogs,
+      revenueTrends: revenueTrends,
+      ordersTrends: ordersTrends,
+      categorySalesDistribution: categorySales,
+      orderStatusDistribution: orderStatusDist,
+      paymentMethodDistribution: paymentDist,
+    );
   }
 
   /// Approve, Reject, or Request Correction for Boutique KYC with Audit Trail
@@ -768,8 +781,10 @@ class AdminRepository {
     final isApproved = status == KycStatus.approved;
     final isRejected = status == KycStatus.rejected;
     final isCorrection = status == KycStatus.correctionRequested;
+    // Valid PostgreSQL shop_status enum: 'pending', 'verified', 'rejected', 'suspended'
     final dbShopStatus = isApproved ? 'verified' : (isRejected ? 'rejected' : 'pending');
-    final dbKycStatus = isApproved ? 'approved' : (isRejected ? 'rejected' : (isCorrection ? 'correction_requested' : 'pending'));
+    // Valid PostgreSQL kyc_status enum: 'not_started', 'pending', 'verified', 'rejected'
+    final dbKycStatus = isApproved ? 'verified' : (isRejected ? 'rejected' : 'pending');
 
     SellerRepository.updateMockShopStatus(
       status: dbShopStatus,
@@ -798,23 +813,56 @@ class AdminRepository {
     if (_client == null) return true;
 
     try {
+      String? matchedSellerId;
+      final updateMap = <String, dynamic>{
+        'status': dbShopStatus,
+        'is_verified': isApproved,
+        'kyc_status': dbKycStatus,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
       try {
-        await _client.from('shops').update({
-          'status': dbShopStatus,
-          'is_verified': isApproved,
-          'kyc_status': dbKycStatus,
-          'kyc_rejection_reason': reason,
-          'kyc_notes': verificationNotes,
-          'kyc_verified_at': isApproved ? DateTime.now().toIso8601String() : null,
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', boutiqueId);
-      } catch (_) {
-        // Fallback for base schema without kyc expansion columns
-        await _client.from('shops').update({
-          'status': dbShopStatus,
-          'is_verified': isApproved,
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', boutiqueId);
+        final existing = await _client.from('shops').select('id, seller_id, name, description').eq('id', boutiqueId).maybeSingle();
+        if (existing != null) {
+          if (existing['seller_id'] != null) {
+            matchedSellerId = existing['seller_id'].toString();
+            if (isApproved) {
+              _locallyApprovedShopIds.add(matchedSellerId);
+            } else if (isRejected) {
+              _locallyRejectedShopIds.add(matchedSellerId);
+            }
+            await _persistStatus();
+          }
+
+          String existingDesc = (existing['description'] as String?) ?? '';
+          Map<String, dynamic> meta = {};
+          if (existingDesc.contains('[KYC_META]:')) {
+            final parts = existingDesc.split('[KYC_META]:');
+            existingDesc = parts[0].trim();
+            if (parts.length > 1) {
+              try {
+                meta = Map<String, dynamic>.from(jsonDecode(parts[1].trim()) as Map);
+              } catch (_) {}
+            }
+          }
+          if (reason != null && reason.isNotEmpty) meta['kyc_rejection_reason'] = reason;
+          if (verificationNotes != null && verificationNotes.isNotEmpty) meta['kyc_notes'] = verificationNotes;
+          if (isApproved) meta['kyc_verified_at'] = DateTime.now().toIso8601String();
+          if (meta.isNotEmpty) {
+            updateMap['description'] = existingDesc.isNotEmpty
+                ? '$existingDesc\n[KYC_META]:${jsonEncode(meta)}'
+                : '[KYC_META]:${jsonEncode(meta)}';
+          }
+        }
+      } catch (_) {}
+
+      try {
+        await _client.from('shops').update(updateMap).eq('id', boutiqueId);
+        if (matchedSellerId != null && matchedSellerId.isNotEmpty) {
+          await _client.from('shops').update(updateMap).eq('seller_id', matchedSellerId);
+        }
+      } catch (e) {
+        debugPrint('[AdminRepository] Error updating shop: $e');
       }
 
       // Record in Supabase audit logs table

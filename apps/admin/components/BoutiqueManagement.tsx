@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -67,60 +68,7 @@ export default function BoutiqueManagement() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-
-      const parsedShops = ((data || []) as any[]).map((shop) => {
-        let owner_name = shop.owner_name;
-        let gstin = shop.gstin;
-        let pan_number = shop.pan_number;
-        let contact_phone = shop.contact_phone;
-        let contact_email = shop.contact_email;
-        let bank_account_number = shop.bank_account_number;
-        let bank_ifsc = shop.bank_ifsc;
-        let bank_name = shop.bank_name;
-        let trade_license_number = shop.trade_license_number;
-        let aadhaar_number = shop.aadhaar_number;
-        let kyc_documents = shop.kyc_documents || [];
-        let cleanDescription = shop.description;
-
-        if (shop.description && shop.description.includes("[KYC_META]:")) {
-          const parts = shop.description.split("[KYC_META]:");
-          cleanDescription = parts[0].trim() || undefined;
-          try {
-            const meta = JSON.parse(parts[1].trim());
-            owner_name = owner_name || meta.owner_name;
-            gstin = gstin || meta.gstin;
-            pan_number = pan_number || meta.pan_number;
-            contact_phone = contact_phone || meta.contact_phone;
-            contact_email = contact_email || meta.contact_email;
-            bank_account_number = bank_account_number || meta.bank_account_number;
-            bank_ifsc = bank_ifsc || meta.bank_ifsc;
-            bank_name = bank_name || meta.bank_name;
-            trade_license_number = trade_license_number || meta.trade_license_number;
-            aadhaar_number = aadhaar_number || meta.aadhaar_number;
-            if (meta.kyc_documents && meta.kyc_documents.length > 0 && (!kyc_documents || kyc_documents.length === 0)) {
-              kyc_documents = meta.kyc_documents;
-            }
-          } catch (_) {}
-        }
-
-        return {
-          ...shop,
-          description: cleanDescription,
-          owner_name,
-          gstin,
-          pan_number,
-          contact_phone,
-          contact_email,
-          bank_account_number,
-          bank_ifsc,
-          bank_name,
-          trade_license_number,
-          aadhaar_number,
-          kyc_documents,
-        } as ShopItem;
-      });
-
-      setShops(parsedShops);
+      setShops((data as ShopItem[]) || []);
     } catch (e: any) {
       console.error("Error loading shops:", e);
       setToast({ message: "Failed to load boutiques: " + e.message, type: "error" });
@@ -131,22 +79,6 @@ export default function BoutiqueManagement() {
 
   useEffect(() => {
     fetchShops();
-
-    // Listen to real-time changes on shops table
-    const channel = supabase
-      .channel("admin-shops-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "shops" },
-        () => {
-          fetchShops();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
   async function updateShopStatus(shopId: string, newStatus: string, verified: boolean) {

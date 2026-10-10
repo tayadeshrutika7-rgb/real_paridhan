@@ -19,7 +19,9 @@ class _AdminBoutiqueVerificationScreenState
   @override
   Widget build(BuildContext context) {
     final adminState = ref.watch(adminProvider);
-    final boutiques = adminState.metrics.pendingBoutiques;
+    final boutiques = adminState.metrics.allBoutiques.isNotEmpty
+        ? adminState.metrics.allBoutiques
+        : adminState.metrics.pendingBoutiques;
 
     final filtered = _selectedFilter == null
         ? boutiques

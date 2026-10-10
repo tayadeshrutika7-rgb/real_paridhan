@@ -149,11 +149,26 @@ class _ShopRegistrationScreenState extends ConsumerState<ShopRegistrationScreen>
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Shop registration and KYC business documents submitted for Super Admin verification!'),
+          content: Text('✅ KYC submitted successfully! Your request has been sent to the Super Admin for verification.'),
           backgroundColor: AppTheme.successColor,
+          duration: Duration(seconds: 4),
         ),
       );
-      context.pop();
+      // Close edit profile section and land back on main seller dashboard
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      } else {
+        context.go('/seller');
+      }
+    } else if (mounted) {
+      final err = ref.read(sellerProvider).errorMessage ?? 'Failed to submit KYC. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ $err'),
+          backgroundColor: AppTheme.errorColor,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 

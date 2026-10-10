@@ -73,7 +73,12 @@ class ShopModel {
     this.createdAt,
   });
 
-  bool get isVerified => status == 'verified' || kycStatus == 'verified';
+  bool get isVerified =>
+      status == 'verified' ||
+      status == 'approved' ||
+      status == 'active' ||
+      kycStatus == 'verified' ||
+      kycStatus == 'approved';
 
   factory ShopModel.fromJson(Map<String, dynamic> json) {
     // PostGIS location parsing fallback (GeoJSON or Point)
@@ -110,6 +115,16 @@ class ShopModel {
         (kycMeta['kyc_documents'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
         [];
 
+    final bool rawIsVerified = json['is_verified'] == true ||
+        json['status'] == 'verified' ||
+        json['status'] == 'approved' ||
+        json['status'] == 'active' ||
+        json['kyc_status'] == 'verified' ||
+        json['kyc_status'] == 'approved';
+
+    final dbStatus = rawIsVerified ? 'verified' : (json['status'] as String? ?? 'pending');
+    final dbKycStatus = rawIsVerified ? 'verified' : (json['kyc_status'] as String? ?? 'pending');
+
     return ShopModel(
       id: json['id'] as String,
       sellerId: json['seller_id'] as String? ?? json['sellerId'] as String? ?? '',
@@ -135,14 +150,14 @@ class ShopModel {
       kycDocuments: kycDocs,
       latitude: lat,
       longitude: lng,
-      status: json['status'] as String? ?? 'pending',
+      status: dbStatus,
       categoryIds: (json['category_ids'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
       avgRating: (json['avg_rating'] as num?)?.toDouble() ?? 0.0,
       razorpayLinkedAccountId: json['razorpay_linked_account_id'] as String?,
-      kycStatus: json['kyc_status'] as String? ?? (json['status'] == 'verified' || json['is_verified'] == true ? 'verified' : 'pending'),
+      kycStatus: dbKycStatus,
       kycRejectionReason: json['kyc_rejection_reason'] as String?,
       kycNotes: json['kyc_notes'] as String?,
       kycVerifiedAt: json['kyc_verified_at'] != null
@@ -187,7 +202,7 @@ class ShopModel {
       'kyc_status': kycStatus,
       'kyc_rejection_reason': kycRejectionReason,
       'kyc_notes': kycNotes,
-      'is_verified': status == 'verified' || kycStatus == 'verified',
+      'is_verified': isVerified,
       'commission_rate': commissionRate,
     };
   }

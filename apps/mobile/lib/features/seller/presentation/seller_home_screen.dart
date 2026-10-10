@@ -56,6 +56,21 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
       appBar: AppBar(
         title: const Text('Seller Studio'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_rounded),
+            tooltip: 'Sync Shop & KYC Status',
+            onPressed: () async {
+              await ref.read(sellerProvider.notifier).refreshShop();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Shop inventory & verification status refreshed!'),
+                    duration: Duration(milliseconds: 900),
+                  ),
+                );
+              }
+            },
+          ),
           const RoleNotificationBadge(role: UserRole.seller),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -69,65 +84,92 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Shop Card Header
-            Card(
-              color: AppTheme.primaryColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      radius: 28,
-                      backgroundColor: Colors.white24,
-                      child: Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            shop?.name ?? user?.fullName ?? 'Local Boutique Store',
-                            style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: shop?.isVerified == true ? AppTheme.successColor : AppTheme.warningColor,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  shop?.isVerified == true ? 'Shop Verified' : 'KYC Pending Verification',
-                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              InkWell(
-                                onTap: () => context.push('/seller/shop'),
-                                child: const Text(
-                                  'Edit Profile',
-                                  style: TextStyle(color: Colors.white70, fontSize: 12, decoration: TextDecoration.underline),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+      body: RefreshIndicator(
+        color: AppTheme.primaryColor,
+        onRefresh: () => ref.read(sellerProvider.notifier).refreshShop(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Shop Card Header
+              Card(
+                color: AppTheme.primaryColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        radius: 28,
+                        backgroundColor: Colors.white24,
+                        child: Icon(Icons.storefront_rounded, color: Colors.white, size: 30),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              shop?.name ?? user?.fullName ?? 'Local Boutique Store',
+                              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: shop?.isVerified == true
+                                        ? AppTheme.successColor
+                                        : (shop?.status == 'rejected' || shop?.kycStatus == 'rejected'
+                                            ? AppTheme.errorColor
+                                            : AppTheme.warningColor),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        shop?.isVerified == true
+                                            ? Icons.verified
+                                            : (shop?.status == 'rejected' || shop?.kycStatus == 'rejected'
+                                                ? Icons.cancel_outlined
+                                                : Icons.hourglass_top_rounded),
+                                        color: Colors.white,
+                                        size: 12,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        shop?.isVerified == true
+                                            ? 'Shop Verified'
+                                            : (shop?.status == 'rejected' || shop?.kycStatus == 'rejected'
+                                                ? 'KYC Rejected'
+                                                : 'KYC Pending Verification'),
+                                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                InkWell(
+                                  onTap: () => context.push('/seller/shop'),
+                                  child: const Text(
+                                    'Edit Profile',
+                                    style: TextStyle(color: Colors.white70, fontSize: 12, decoration: TextDecoration.underline),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
             // Performance Section with Timeframe Filter Switcher
             Row(
@@ -792,8 +834,9 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTimeframeTab({
     required String label,

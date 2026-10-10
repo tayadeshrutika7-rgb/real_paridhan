@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../auth/presentation/auth_state.dart';
 import '../data/seller_repository.dart';
 import '../domain/shop_model.dart';
@@ -11,6 +12,7 @@ import '../../../core/network/supabase_client.dart';
 import '../../../core/notifications/domain/app_notification_model.dart';
 import '../../../core/notifications/presentation/role_notification_controller.dart';
 import '../../admin/presentation/admin_controller.dart';
+import '../../admin/data/admin_repository.dart';
 
 class SellerState {
   final bool isLoading;
@@ -48,20 +50,78 @@ class SellerState {
 
 class SellerController extends Notifier<SellerState> {
   final SellerRepository _repository = SellerRepository();
+  RealtimeChannel? _shopsChannel;
 
   @override
   SellerState build() {
     final authState = ref.watch(authProvider);
     final sellerId = authState.user?.id ?? SupabaseService.client?.auth.currentUser?.id ?? '';
     
+    // Clean up channel on dispose
+    ref.onDispose(() {
+      _shopsChannel?.unsubscribe();
+    });
+
     // Defer async loading to microtask to prevent mutating state during build
     Future.microtask(() => _loadShopAndProducts(sellerId));
 
     return const SellerState(isLoading: true);
   }
 
+  void _subscribeToShop(String sellerId) {
+    _shopsChannel?.unsubscribe();
+    final client = SupabaseService.client;
+    if (client == null || sellerId.isEmpty || sellerId.startsWith('mock')) return;
+
+    try {
+      _shopsChannel = client
+          .channel('seller_shop_stream:$sellerId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'shops',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'seller_id',
+              value: sellerId,
+            ),
+            callback: (payload) {
+              final rec = payload.newRecord;
+              if (rec.isNotEmpty) {
+                final updated = ShopModel.fromJson(rec);
+                final wasPending = state.shop?.isVerified != true;
+                final isNowVerified = updated.isVerified;
+
+                state = state.copyWith(shop: updated);
+
+                if (wasPending && isNowVerified) {
+                  ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+                    title: '🎉 Boutique KYC Approved!',
+                    body: 'Congratulations! Your boutique KYC has been verified by Super Admin. Your shop is now live!',
+                    category: NotificationCategory.message,
+                    deepLink: '/seller',
+                  );
+                }
+              }
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint('[SellerController] Realtime subscription error: $e');
+    }
+  }
+
+  Future<void> refreshShop() async {
+    final authState = ref.read(authProvider);
+    final sellerId = authState.user?.id ?? SupabaseService.client?.auth.currentUser?.id ?? '';
+    if (sellerId.isNotEmpty) {
+      await _loadShopAndProducts(sellerId);
+    }
+  }
+
   Future<void> _loadShopAndProducts(String sellerId) async {
     state = state.copyWith(isLoading: true, clearError: true);
+    _subscribeToShop(sellerId);
     try {
       var shop = await _repository.getShop(sellerId);
       if (shop == null && sellerId.isNotEmpty && !sellerId.startsWith('mock') && !sellerId.startsWith('guest')) {
@@ -76,9 +136,9 @@ class SellerController extends Notifier<SellerState> {
           address: 'Johari Bazaar, Pink City, Jaipur',
           latitude: 26.9200,
           longitude: 75.8267,
-          status: 'verified',
+          status: 'pending',
           kycStatus: 'pending',
-          avgRating: 4.8,
+          avgRating: 0.0,
         );
         try {
           shop = await _repository.saveShop(initialShop);
@@ -169,16 +229,21 @@ class SellerController extends Notifier<SellerState> {
         latitude: latitude,
         longitude: longitude,
         categoryIds: categoryIds.isNotEmpty ? categoryIds : (existingShop?.categoryIds ?? const []),
-        status: existingShop?.status ?? 'pending',
-        kycStatus: existingShop?.kycStatus == 'not_started' ? 'pending' : (existingShop?.kycStatus ?? 'pending'),
+        // When submitting KYC: mark as pending for Admin verification review
+        status: 'pending',
+        kycStatus: 'pending',
         avgRating: existingShop?.avgRating ?? 0.0,
       );
 
       final saved = await _repository.saveShop(shopToSave);
+
+      // Clear any stale local cached approvals for this shop so admin immediately sees pending request
+      AdminRepository.clearLocallyCachedStatusForShop(saved.id, sellerId, name);
+
       state = state.copyWith(
         isLoading: false,
         shop: saved,
-        successMessage: 'Shop profile saved successfully!',
+        successMessage: 'Shop profile & KYC submitted for Admin verification!',
       );
 
       // Post notification to Admin role
@@ -189,8 +254,9 @@ class SellerController extends Notifier<SellerState> {
         deepLink: '/admin',
       );
 
-      // Invalidate Admin Provider so dashboard immediately shows pending shop
+      // Invalidate and reload Admin Provider so dashboard immediately shows pending shop
       ref.invalidate(adminProvider);
+      ref.read(adminProvider.notifier).loadDashboard();
 
       return true;
     } catch (e) {
@@ -247,7 +313,7 @@ class SellerController extends Notifier<SellerState> {
           address: 'Johari Bazaar, Pink City, Jaipur',
           latitude: 26.9200,
           longitude: 75.8267,
-          status: 'verified',
+          status: 'pending',
           kycStatus: 'pending',
           avgRating: 4.8,
         );

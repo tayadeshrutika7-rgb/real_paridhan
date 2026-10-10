@@ -582,6 +582,10 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
     return Scaffold(
       backgroundColor: AppTheme.surfaceColor,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+        ),
         title: const Text('My Account', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
@@ -730,6 +734,15 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
                         IconButton(
                           icon: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
                           onPressed: () => _showEditProfileDialog(context, user),
+                        )
+                      else
+                        ElevatedButton(
+                          onPressed: () => context.push('/login'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            minimumSize: Size.zero,
+                          ),
+                          child: const Text('Sign In', style: TextStyle(fontSize: 12)),
                         ),
                     ],
                   ),
@@ -886,33 +899,43 @@ class _ConsumerProfileScreenState extends ConsumerState<ConsumerProfileScreen> {
                     onTap: () => context.push('/legal/privacy'),
                   ),
                   _buildDivider(),
-                  _buildListTile(
-                    icon: Icons.logout,
-                    iconColor: AppTheme.errorColor,
-                    title: 'Sign Out',
-                    titleColor: AppTheme.errorColor,
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Sign Out'),
-                          content: const Text('Are you sure you want to sign out of Paridhan?'),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor),
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                ref.read(authProvider.notifier).signOut();
-                                context.go('/login');
-                              },
-                              child: const Text('Sign Out'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                  if (authState.isGuest || user == null)
+                    _buildListTile(
+                      icon: Icons.login_rounded,
+                      iconColor: AppTheme.primaryColor,
+                      title: 'Sign In / Register',
+                      titleColor: AppTheme.primaryColor,
+                      subtitle: 'Sign in to access your orders, addresses & negotiated deals',
+                      onTap: () => context.push('/login'),
+                    )
+                  else
+                    _buildListTile(
+                      icon: Icons.logout,
+                      iconColor: AppTheme.errorColor,
+                      title: 'Sign Out',
+                      titleColor: AppTheme.errorColor,
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Sign Out'),
+                            content: const Text('Are you sure you want to sign out of Paridhan?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor),
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  ref.read(authProvider.notifier).signOut();
+                                  context.go('/login');
+                                },
+                                child: const Text('Sign Out'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                 ]),
 
                 const SizedBox(height: 28),

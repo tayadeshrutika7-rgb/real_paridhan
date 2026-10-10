@@ -129,10 +129,12 @@ class SellerRepository {
           .from('shops')
           .select()
           .eq('seller_id', targetId)
-          .maybeSingle();
+          .order('updated_at', ascending: false);
 
-      if (res != null) {
-        return ShopModel.fromJson(res);
+      if (res is List && res.isNotEmpty) {
+        final list = res.map((r) => ShopModel.fromJson(r as Map<String, dynamic>)).toList();
+        final verifiedShop = list.where((s) => s.isVerified).firstOrNull;
+        return verifiedShop ?? list.first;
       }
       return null;
     } catch (e) {
@@ -181,16 +183,28 @@ class SellerRepository {
     try {
       // 1. Check if the seller already has an existing shop row in Supabase
       String? existingShopId;
+      final existingRes = await client
+          .from('shops')
+          .select('id, status, is_verified, kyc_status')
+          .eq('seller_id', targetSellerId)
+          .order('updated_at', ascending: false);
+
+      final existingList = existingRes as List;
       if (!shop.id.startsWith('shop-') && shop.id.isNotEmpty) {
         existingShopId = shop.id;
-      } else {
-        final existing = await client
-            .from('shops')
-            .select('id')
-            .eq('seller_id', targetSellerId)
-            .maybeSingle();
-        if (existing != null && existing['id'] != null) {
-          existingShopId = existing['id'].toString();
+      } else if (existingList.isNotEmpty) {
+        existingShopId = existingList.first['id'].toString();
+      }
+
+      // If duplicate rows exist for this seller, remove obsolete duplicate rows
+      if (existingList.length > 1 && existingShopId != null) {
+        for (final item in existingList) {
+          final itemId = item['id'].toString();
+          if (itemId != existingShopId) {
+            try {
+              await client.from('shops').delete().eq('id', itemId);
+            } catch (_) {}
+          }
         }
       }
 
@@ -218,19 +232,36 @@ class SellerRepository {
       if (cleanDesc.contains('[KYC_META]:')) {
         cleanDesc = cleanDesc.split('[KYC_META]:')[0].trim();
       }
+
+      // 3. Prepare payload with standard columns matching PostgreSQL schema
+      // Valid enum values in PostgreSQL: 'pending', 'verified', 'rejected', 'suspended'
+      final resolvedKycStatus = (shop.kycStatus == 'approved' || shop.kycStatus == 'verified')
+          ? 'verified'
+          : (shop.kycStatus.isNotEmpty ? shop.kycStatus : 'pending');
+      final resolvedStatus = (shop.status == 'approved' || shop.status == 'verified')
+          ? 'verified'
+          : (shop.status.isNotEmpty ? shop.status : 'pending');
+      // is_verified is ONLY true when status is explicitly verified by admin
+      final resolvedIsVerified = resolvedStatus == 'verified' && resolvedKycStatus == 'verified';
+
+      // Store kyc_submitted_at timestamp in extraKyc metadata (not in raw table column)
+      if (resolvedKycStatus == 'pending' && !resolvedIsVerified && extraKyc.isNotEmpty) {
+        extraKyc['kyc_submitted_at'] = DateTime.now().toIso8601String();
+      }
+
       final String fullDesc = extraKyc.isNotEmpty
           ? (cleanDesc.isNotEmpty ? '$cleanDesc\n[KYC_META]:${jsonEncode(extraKyc)}' : '[KYC_META]:${jsonEncode(extraKyc)}')
           : cleanDesc;
 
-      // 3. Prepare payload with standard columns
       final payload = <String, dynamic>{
         'seller_id': targetSellerId,
         'name': shop.name,
         'description': fullDesc,
         'address': shop.address,
         'location': 'POINT(${shop.longitude} ${shop.latitude})',
-        'status': shop.status,
-        'kyc_status': shop.kycStatus.isNotEmpty ? shop.kycStatus : 'pending',
+        'status': resolvedStatus,
+        'kyc_status': resolvedKycStatus,
+        'is_verified': resolvedIsVerified,
         'commission_rate': shop.commissionRate,
       };
 

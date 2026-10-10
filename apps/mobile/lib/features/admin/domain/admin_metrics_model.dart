@@ -44,6 +44,7 @@ enum KycStatus {
 
 class BoutiqueVerificationItem {
   final String id;
+  final String sellerId;
   final String shopName;
   final String ownerName;
   final String ownerEmail;
@@ -68,6 +69,7 @@ class BoutiqueVerificationItem {
 
   const BoutiqueVerificationItem({
     required this.id,
+    this.sellerId = '',
     required this.shopName,
     required this.ownerName,
     required this.ownerEmail,
@@ -111,6 +113,7 @@ class BoutiqueVerificationItem {
 
   BoutiqueVerificationItem copyWith({
     String? id,
+    String? sellerId,
     String? shopName,
     String? ownerName,
     String? ownerEmail,
@@ -135,6 +138,7 @@ class BoutiqueVerificationItem {
   }) {
     return BoutiqueVerificationItem(
       id: id ?? this.id,
+      sellerId: sellerId ?? this.sellerId,
       shopName: shopName ?? this.shopName,
       ownerName: ownerName ?? this.ownerName,
       ownerEmail: ownerEmail ?? this.ownerEmail,
@@ -185,6 +189,7 @@ class BoutiqueVerificationItem {
 
     return BoutiqueVerificationItem(
       id: map['id']?.toString() ?? '',
+      sellerId: map['seller_id']?.toString() ?? '',
       shopName: map['name'] ?? map['shop_name'] ?? 'Boutique Store',
       ownerName: map['owner_name'] ?? map['full_name'] ?? kycMeta['owner_name'] ?? 'Boutique Owner',
       ownerEmail: map['owner_email'] ?? map['email'] ?? map['contact_email'] ?? kycMeta['contact_email'] ?? 'seller@paridhan.local',
@@ -205,9 +210,13 @@ class BoutiqueVerificationItem {
       rejectionReason: map['kyc_rejection_reason'],
       status: KycStatus.fromString(kycStatusStr),
       submittedAt: map['kyc_submitted_at'] != null
-          ? DateTime.tryParse(map['kyc_submitted_at']) ?? DateTime.now()
-          : (map['created_at'] != null ? DateTime.tryParse(map['created_at']) ?? DateTime.now() : DateTime.now()),
-      verifiedAt: map['kyc_verified_at'] != null ? DateTime.tryParse(map['kyc_verified_at']) : null,
+          ? DateTime.tryParse(map['kyc_submitted_at'].toString()) ?? DateTime.now()
+          : (kycMeta['kyc_submitted_at'] != null
+              ? DateTime.tryParse(kycMeta['kyc_submitted_at'].toString()) ?? DateTime.now()
+              : (map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now() : DateTime.now())),
+      verifiedAt: map['kyc_verified_at'] != null
+          ? DateTime.tryParse(map['kyc_verified_at'].toString())
+          : (kycMeta['kyc_verified_at'] != null ? DateTime.tryParse(kycMeta['kyc_verified_at'].toString()) : null),
     );
   }
 }
@@ -399,8 +408,8 @@ class AdminSellerItem {
       address: map['address'] ?? 'Jaipur',
       cityZone: map['city_zone'] ?? 'Pink City',
       gstin: map['gstin'] ?? '08AAAAA0000A1Z5',
-      status: map['status'] ?? (map['is_verified'] == true ? 'verified' : 'pending'),
-      kycStatus: KycStatus.fromString(map['kyc_status'] ?? (map['is_verified'] == true ? 'approved' : 'pending')),
+      status: map['status'] ?? ((map['is_verified'] == true && map['kyc_status'] == 'verified') ? 'verified' : 'pending'),
+      kycStatus: KycStatus.fromString(map['kyc_status'] ?? ((map['is_verified'] == true && map['status'] == 'verified') ? 'approved' : 'pending')),
       totalProducts: (map['total_products'] as num?)?.toInt() ?? 0,
       totalOrders: (map['total_orders'] as num?)?.toInt() ?? 0,
       totalSales: sales,
@@ -708,6 +717,7 @@ class AdminMetricsModel {
 
   // 3. Lists & Data Collections
   final List<BoutiqueVerificationItem> pendingBoutiques;
+  final List<BoutiqueVerificationItem> allBoutiques;
   final List<AdminSellerItem> sellers;
   final List<AdminCustomerItem> customers;
   final List<AdminDeliveryPartnerItem> deliveryPartners;
@@ -745,6 +755,7 @@ class AdminMetricsModel {
     this.pendingOrdersCount = 0,
     this.openDisputesCount = 0,
     this.pendingBoutiques = const [],
+    this.allBoutiques = const [],
     this.sellers = const [],
     this.customers = const [],
     this.deliveryPartners = const [],
@@ -783,6 +794,7 @@ class AdminMetricsModel {
     int? pendingOrdersCount,
     int? openDisputesCount,
     List<BoutiqueVerificationItem>? pendingBoutiques,
+    List<BoutiqueVerificationItem>? allBoutiques,
     List<AdminSellerItem>? sellers,
     List<AdminCustomerItem>? customers,
     List<AdminDeliveryPartnerItem>? deliveryPartners,
@@ -818,6 +830,7 @@ class AdminMetricsModel {
       pendingOrdersCount: pendingOrdersCount ?? this.pendingOrdersCount,
       openDisputesCount: openDisputesCount ?? this.openDisputesCount,
       pendingBoutiques: pendingBoutiques ?? this.pendingBoutiques,
+      allBoutiques: allBoutiques ?? this.allBoutiques,
       sellers: sellers ?? this.sellers,
       customers: customers ?? this.customers,
       deliveryPartners: deliveryPartners ?? this.deliveryPartners,
