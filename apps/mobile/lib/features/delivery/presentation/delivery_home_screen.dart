@@ -249,6 +249,36 @@ class _DeliveryHomeScreenState extends ConsumerState<DeliveryHomeScreen>
                 ),
               ),
 
+              // Emergency Rejection Penalty Notice (if charged today)
+              if (earnings.todayPenalties > 0) ...[
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () => context.push('/delivery/earnings'),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.red.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Emergency Cancellation Charge: -₹${earnings.todayPenalties.toStringAsFixed(0)} debited today.',
+                            style: TextStyle(color: Colors.red.shade900, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.red, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 16),
 
               // 2. Active Trip Banner (if any)

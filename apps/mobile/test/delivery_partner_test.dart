@@ -20,6 +20,9 @@ void main() {
   });
 
   group('Phase 6: Hyperlocal Delivery Partner & Dispatch Engine Tests', () {
+    setUp(() {
+      DeliveryRepository.resetSimulatedState();
+    });
     test('DeliveryTaskModel distance and step progression calculations', () {
       const task = DeliveryTaskModel(
         id: 'task-01',
@@ -64,8 +67,18 @@ void main() {
       expect(pickedUpTask.progressStepIndex, 2); // On the way to customer
     });
 
-    test('DeliveryEarningsModel calculates total earnings and tracks COD remittance', () {
-      const earnings = DeliveryEarningsModel(
+    test('DeliveryEarningsModel calculates total earnings, deducts penalties and tracks COD remittance', () {
+      final penalties = <DeliveryPenaltyItem>[
+        DeliveryPenaltyItem(
+          orderId: 'ord-01',
+          orderNumber: 'PRD-2026-101',
+          amount: 100.0,
+          reason: 'Emergency Cancellation: Bike Breakdown',
+          chargedAt: DateTime.now(),
+        ),
+      ];
+
+      final earnings = DeliveryEarningsModel(
         todayTripsCount: 5,
         todayBaseEarnings: 400.0,
         todayDistanceIncentive: 60.0,
@@ -73,11 +86,19 @@ void main() {
         todayCodCollected: 3500.0,
         pendingCodRemittance: 3500.0,
         totalDistanceTodayKm: 22.5,
+        todayPenalties: 100.0,
+        penaltiesCount: 1,
+        penalties: penalties,
       );
 
       expect(earnings.todayTotalEarnings, 500.0); // 400 + 60 + 40
+      expect(earnings.todayPenalties, 100.0);
+      expect(earnings.todayNetEarnings, 400.0); // 500 - 100
+      expect(earnings.rawNetBalance, 400.0);
       expect(earnings.pendingCodRemittance, 3500.0);
       expect(earnings.todayTripsCount, 5);
+      expect(earnings.penalties.length, 1);
+      expect(earnings.penalties.first.amount, 100.0);
     });
 
     test('DeliveryRepository duty toggle, radar dispatch, pickup, and OTP validation', () async {
@@ -122,6 +143,67 @@ void main() {
         codCollectedAmount: firstTask.codCashToCollect,
       );
       expect(correctOtpSuccess, isTrue);
+    });
+
+    test('Delivery emergency rejection charges ₹100 penalty and updates partner earnings', () async {
+      final repo = DeliveryRepository();
+      const driverId = 'driver-test-emergency';
+
+      // 1. Accept a trip
+      final incoming = await repo.getIncomingRequests(driverId: driverId);
+      final task = incoming.first;
+      await repo.acceptTask(taskId: task.id, driverId: driverId);
+
+      // Verify active trip exists
+      final activeTripBefore = await repo.getActiveTrip(driverId);
+      expect(activeTripBefore, isNotNull);
+
+      // 2. Reject trip on emergency basis (personal reason)
+      final success = await repo.rejectDeliveryEmergency(
+        taskId: task.id,
+        orderId: task.orderId,
+        driverId: driverId,
+        reason: 'Personal bike breakdown',
+      );
+      expect(success, isTrue);
+
+      // 3. Active trip must be cleared
+      final activeTripAfter = await repo.getActiveTrip(driverId);
+      expect(activeTripAfter, isNull);
+
+      // 4. Partner's earnings must reflect the ₹100 penalty
+      final earnings = await repo.getEarningsSummary(driverId);
+      expect(earnings.todayPenalties, greaterThanOrEqualTo(100.0));
+      expect(earnings.penaltiesCount, greaterThanOrEqualTo(1));
+      expect(earnings.penalties.any((p) => p.amount == 100.0 && p.reason.contains('bike breakdown')), isTrue);
+    });
+
+    test('Reporting customer unavailable records issue without charging delivery partner', () async {
+      final repo = DeliveryRepository();
+      const driverId = 'driver-test-unavailable';
+
+      // 1. Accept a trip
+      final incoming = await repo.getIncomingRequests(driverId: driverId);
+      final task = incoming.last;
+      await repo.acceptTask(taskId: task.id, driverId: driverId);
+
+      // 2. Report customer unavailable
+      final success = await repo.reportCustomerUnavailable(
+        taskId: task.id,
+        orderId: task.orderId,
+        driverId: driverId,
+        notes: 'Door locked, phone switched off after 3 attempts',
+      );
+      expect(success, isTrue);
+
+      // 3. Active trip is cleared
+      final activeTripAfter = await repo.getActiveTrip(driverId);
+      expect(activeTripAfter, isNull);
+
+      // 4. Zero penalty must be charged
+      final earnings = await repo.getEarningsSummary(driverId);
+      expect(earnings.todayPenalties, 0.0);
+      expect(earnings.penaltiesCount, 0);
     });
 
     test('DeliveryRouteBatchModel finds same-path batches and checks on-the-way orders', () {

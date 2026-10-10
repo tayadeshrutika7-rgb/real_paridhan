@@ -999,11 +999,17 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
 
     for (final o in orders) {
       final status = (o['status'] ?? '').toString().toLowerCase();
-      final total = (o['total_amount'] as num?)?.toDouble() ??
+      // Cancelled and returned orders must not count towards active metrics or revenue
+      if (status == 'cancelled' || status == 'returned') {
+        continue;
+      }
+
+      final subtotal = (o['subtotal'] as num?)?.toDouble() ??
+          (o['total_amount'] as num?)?.toDouble() ??
           (o['total'] as num?)?.toDouble() ??
-          (o['subtotal'] as num?)?.toDouble() ??
           0.0;
-      final payout = (o['seller_payout_amount'] as num?)?.toDouble() ?? (total * 0.90);
+      final comm = (o['commission_amount'] as num?)?.toDouble() ?? (subtotal * 0.03);
+      final payout = (o['seller_payout_amount'] as num?)?.toDouble() ?? (subtotal - comm);
 
       if (status == 'placed' || status == 'confirmed') {
         pendingPackingCount++;
@@ -1015,13 +1021,13 @@ class _SellerHomeScreenState extends ConsumerState<SellerHomeScreen> {
 
       // Sales calculation based on selected timeframe
       if (isWithinTimeframe(o)) {
-        if (status == 'delivered' || status == 'confirmed' || status == 'out_for_delivery') {
-          grossSalesTotal += total;
+        // Realized sales: only successfully delivered orders!
+        if (status == 'delivered') {
+          grossSalesTotal += subtotal;
         }
-        if (status == 'delivered' || status == 'placed' || status == 'confirmed' || status == 'out_for_delivery') {
-          if (o['payment_status'] != 'paid' || status != 'delivered') {
-            pendingPayoutTotal += payout;
-          }
+        // Pending payout: orders currently in fulfillment pipeline
+        if (status == 'placed' || status == 'confirmed' || status == 'packed' || status == 'out_for_delivery') {
+          pendingPayoutTotal += payout;
         }
       }
     }

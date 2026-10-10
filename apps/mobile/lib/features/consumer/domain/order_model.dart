@@ -104,6 +104,9 @@ class OrderModel {
   final String? deliveryPartnerPhone;
   final double? deliveryPartnerLat;
   final double? deliveryPartnerLng;
+  final bool customerUnavailable;
+  final String? deliveryIssue;
+  final String? deliveryIssueNotes;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? deliveredAt;
@@ -131,12 +134,26 @@ class OrderModel {
     this.deliveryPartnerPhone,
     this.deliveryPartnerLat,
     this.deliveryPartnerLng,
+    this.customerUnavailable = false,
+    this.deliveryIssue,
+    this.deliveryIssueNotes,
     required this.createdAt,
     required this.updatedAt,
     this.deliveredAt,
   });
 
+  /// Deterministic 4-digit code (1000 - 9999) tied permanently to an order identifier
+  /// Ensures the OTP never mutates or resets midway across app reloads
+  static String generateDeterministicOtp(String id) {
+    if (id.isEmpty) return '4829';
+    final hash = id.hashCode.abs();
+    return (1000 + (hash % 9000)).toString();
+  }
+
   String get statusLabel {
+    if (customerUnavailable || deliveryIssue == 'customer_not_available') {
+      return 'Delivery Pending (Customer Unavailable)';
+    }
     switch (status) {
       case OrderStatus.pending:
         return 'Order Placed';
@@ -210,8 +227,13 @@ class OrderModel {
       subtotal: (json['subtotal'] as num?)?.toDouble() ?? 0.0,
       deliveryFee: (json['delivery_fee'] as num?)?.toDouble() ?? 49.0,
       platformFee: (json['platform_fee'] as num?)?.toDouble() ?? 10.0,
-      discount: (json['discount'] as num?)?.toDouble() ?? 0.0,
-      totalAmount: (json['total_amount'] as num?)?.toDouble() ?? 0.0,
+      totalAmount: ((json['total_amount'] as num?)?.toDouble() ?? 0.0) > 0
+          ? (json['total_amount'] as num).toDouble()
+          : (((json['total'] as num?)?.toDouble() ?? 0.0) > 0
+              ? (json['total'] as num).toDouble()
+              : (((json['subtotal'] as num?)?.toDouble() ?? 0.0) +
+                  ((json['delivery_fee'] as num?)?.toDouble() ?? 49.0) +
+                  ((json['platform_fee'] as num?)?.toDouble() ?? 10.0))),
       status: OrderStatus.values.firstWhere(
         (e) => e.name.toLowerCase() == rawStatus.replaceAll('_', '').toLowerCase(),
         orElse: () => OrderStatus.pending,
@@ -227,11 +249,16 @@ class OrderModel {
       razorpayOrderId: json['razorpay_order_id'] as String?,
       razorpayPaymentId: json['razorpay_payment_id'] as String?,
       deliveryAddress: address,
-      deliveryOtp: json['delivery_otp']?.toString() ?? '4829',
+      deliveryOtp: (json['delivery_otp'] != null && json['delivery_otp'].toString().trim().isNotEmpty)
+          ? json['delivery_otp'].toString().trim()
+          : OrderModel.generateDeterministicOtp(json['id']?.toString() ?? json['order_number']?.toString() ?? ''),
       deliveryPartnerName: json['delivery_partner_name'] as String?,
       deliveryPartnerPhone: json['delivery_partner_phone'] as String?,
       deliveryPartnerLat: (json['delivery_partner_lat'] as num?)?.toDouble(),
       deliveryPartnerLng: (json['delivery_partner_lng'] as num?)?.toDouble(),
+      customerUnavailable: json['customer_unavailable'] == true || json['delivery_issue'] == 'customer_not_available',
+      deliveryIssue: json['delivery_issue'] as String?,
+      deliveryIssueNotes: json['delivery_issue_notes'] as String?,
       createdAt: json['created_at'] != null
           ? (DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now())
           : DateTime.now(),
@@ -265,6 +292,9 @@ class OrderModel {
       'delivery_otp': deliveryOtp,
       'delivery_partner_name': deliveryPartnerName,
       'delivery_partner_phone': deliveryPartnerPhone,
+      'customer_unavailable': customerUnavailable,
+      'delivery_issue': deliveryIssue,
+      'delivery_issue_notes': deliveryIssueNotes,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -293,6 +323,9 @@ class OrderModel {
     String? deliveryPartnerPhone,
     double? deliveryPartnerLat,
     double? deliveryPartnerLng,
+    bool? customerUnavailable,
+    String? deliveryIssue,
+    String? deliveryIssueNotes,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? deliveredAt,
@@ -320,6 +353,9 @@ class OrderModel {
       deliveryPartnerPhone: deliveryPartnerPhone ?? this.deliveryPartnerPhone,
       deliveryPartnerLat: deliveryPartnerLat ?? this.deliveryPartnerLat,
       deliveryPartnerLng: deliveryPartnerLng ?? this.deliveryPartnerLng,
+      customerUnavailable: customerUnavailable ?? this.customerUnavailable,
+      deliveryIssue: deliveryIssue ?? this.deliveryIssue,
+      deliveryIssueNotes: deliveryIssueNotes ?? this.deliveryIssueNotes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deliveredAt: deliveredAt ?? this.deliveredAt,

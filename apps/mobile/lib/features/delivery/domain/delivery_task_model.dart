@@ -135,6 +135,9 @@ class DeliveryTaskModel {
   // Items & Verification
   final List<DeliveryTaskItem> items;
   final String deliveryOtp; // 4-digit OTP matching orders.delivery_otp
+  final bool customerUnavailable;
+  final String? deliveryIssue;
+  final String? rejectionReason;
   final DateTime? createdAt;
   final DateTime? acceptedAt;
   final DateTime? pickedUpAt;
@@ -166,6 +169,9 @@ class DeliveryTaskModel {
     required this.codCashToCollect,
     required this.items,
     required this.deliveryOtp,
+    this.customerUnavailable = false,
+    this.deliveryIssue,
+    this.rejectionReason,
     this.createdAt,
     this.acceptedAt,
     this.pickedUpAt,
@@ -225,6 +231,9 @@ class DeliveryTaskModel {
     double? codCashToCollect,
     List<DeliveryTaskItem>? items,
     String? deliveryOtp,
+    bool? customerUnavailable,
+    String? deliveryIssue,
+    String? rejectionReason,
     DateTime? createdAt,
     DateTime? acceptedAt,
     DateTime? pickedUpAt,
@@ -256,6 +265,9 @@ class DeliveryTaskModel {
       codCashToCollect: codCashToCollect ?? this.codCashToCollect,
       items: items ?? this.items,
       deliveryOtp: deliveryOtp ?? this.deliveryOtp,
+      customerUnavailable: customerUnavailable ?? this.customerUnavailable,
+      deliveryIssue: deliveryIssue ?? this.deliveryIssue,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
       createdAt: createdAt ?? this.createdAt,
       acceptedAt: acceptedAt ?? this.acceptedAt,
       pickedUpAt: pickedUpAt ?? this.pickedUpAt,
@@ -286,9 +298,16 @@ class DeliveryTaskModel {
         (order['delivery_fee'] as num?)?.toDouble() ??
         85.0;
 
+    final isCustUnavail = map['customer_unavailable'] == true ||
+        order['customer_unavailable'] == true ||
+        map['rejection_type'] == 'customer_unavailable' ||
+        order['delivery_issue'] == 'customer_not_available';
+
+    final rawOrderId = map['order_id']?.toString() ?? order['id']?.toString() ?? '';
+
     return DeliveryTaskModel(
       id: map['id']?.toString() ?? '',
-      orderId: map['order_id']?.toString() ?? order['id']?.toString() ?? '',
+      orderId: rawOrderId,
       orderNumber: order['order_number']?.toString() ?? 'PRD-ORD',
       deliveryPartnerId: map['delivery_partner_id']?.toString() ?? order['delivery_partner_id']?.toString(),
       status: DeliveryTaskStatus.fromString(map['status'] ?? order['status']),
@@ -311,7 +330,14 @@ class DeliveryTaskModel {
       isCod: isCod,
       codCashToCollect: isCod ? totalAmount : 0.0,
       items: rawItems.map((item) => DeliveryTaskItem.fromMap(item as Map<String, dynamic>)).toList(),
-      deliveryOtp: order['delivery_otp']?.toString() ?? map['delivery_otp']?.toString() ?? '4829',
+      deliveryOtp: (order['delivery_otp'] != null && order['delivery_otp'].toString().trim().isNotEmpty)
+          ? order['delivery_otp'].toString().trim()
+          : ((map['delivery_otp'] != null && map['delivery_otp'].toString().trim().isNotEmpty)
+              ? map['delivery_otp'].toString().trim()
+              : (rawOrderId.isNotEmpty ? (1000 + (rawOrderId.hashCode.abs() % 9000)).toString() : '4829')),
+      customerUnavailable: isCustUnavail,
+      deliveryIssue: map['delivery_issue']?.toString() ?? order['delivery_issue']?.toString() ?? (isCustUnavail ? 'customer_not_available' : null),
+      rejectionReason: map['rejection_reason']?.toString() ?? order['cancel_reason']?.toString(),
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) : null,
       acceptedAt: map['accepted_at'] != null ? DateTime.tryParse(map['accepted_at'].toString()) : null,
       pickedUpAt: map['picked_up_at'] != null ? DateTime.tryParse(map['picked_up_at'].toString()) : null,

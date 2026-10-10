@@ -254,6 +254,83 @@ class OrderController extends Notifier<OrderState> {
     }
   }
 
+  Future<bool> cancelOrderDueToCustomerUnavailable(String orderId) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final ok = await _repository.cancelOrderDueToCustomerUnavailable(orderId);
+      if (ok) {
+        final shortId = orderId.substring(0, orderId.length > 8 ? 8 : orderId.length);
+        final updatedSellerOrders = state.sellerOrders.map((o) {
+          return o.id == orderId
+              ? o.copyWith(
+                  status: OrderStatus.cancelled,
+                  customerUnavailable: true,
+                  deliveryIssue: 'customer_not_available',
+                  deliveryIssueNotes: 'Cancelled by seller due to customer unavailability',
+                )
+              : o;
+        }).toList();
+
+        final updatedConsumerOrders = state.orders.map((o) {
+          return o.id == orderId
+              ? o.copyWith(
+                  status: OrderStatus.cancelled,
+                  customerUnavailable: true,
+                  deliveryIssue: 'customer_not_available',
+                )
+              : o;
+        }).toList();
+
+        final updatedActive = state.activeOrder?.id == orderId
+            ? state.activeOrder!.copyWith(
+                status: OrderStatus.cancelled,
+                customerUnavailable: true,
+                deliveryIssue: 'customer_not_available',
+              )
+            : state.activeOrder;
+
+        state = state.copyWith(
+          sellerOrders: updatedSellerOrders,
+          orders: updatedConsumerOrders,
+          activeOrder: updatedActive,
+          isLoading: false,
+        );
+
+        // 1. Seller notification
+        ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+          title: 'Order Cancelled (Customer Unavailable)',
+          body: 'Order #$shortId has been cancelled due to customer unavailability. Inventory restocked.',
+          category: NotificationCategory.order,
+          deepLink: '/seller/orders',
+        );
+
+        // 2. Customer notification
+        ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+          title: 'Order Cancelled: Doorstep Unreachable',
+          body: 'Your order #$shortId was cancelled by the boutique as the delivery partner was unable to reach you.',
+          category: NotificationCategory.order,
+          deepLink: '/order/$orderId',
+        );
+
+        // 3. Admin notification
+        ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+          title: 'Order Cancelled by Seller (Customer Unavailable)',
+          body: 'Seller cancelled order #$shortId following delivery partner unavailability report.',
+          category: NotificationCategory.platform,
+          deepLink: '/admin',
+        );
+
+        return true;
+      } else {
+        state = state.copyWith(isLoading: false);
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      return false;
+    }
+  }
+
   void clearPlacedOrder() {
     state = state.copyWith(clearPlacedOrder: true);
   }

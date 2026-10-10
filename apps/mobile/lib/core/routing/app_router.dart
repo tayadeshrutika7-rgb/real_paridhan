@@ -129,6 +129,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/legal/privacy',
         builder: (context, state) => const LegalScreen(type: LegalType.privacy),
       ),
+      GoRoute(
+        path: '/legal/fees',
+        builder: (context, state) => const LegalScreen(type: LegalType.feeDisclosure),
+      ),
+      GoRoute(
+        path: '/legal/fee-disclosure',
+        builder: (context, state) => const LegalScreen(type: LegalType.feeDisclosure),
+      ),
       // Consumer Routes
       GoRoute(
         path: '/profile',

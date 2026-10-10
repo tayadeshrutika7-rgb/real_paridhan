@@ -308,7 +308,7 @@ class CityZoneMetric {
       activeBoutiques: (map['active_boutiques'] as num?)?.toInt() ?? 0,
       totalOrders: (map['total_orders'] as num?)?.toInt() ?? 0,
       gmvAmount: gmv,
-      platformRevenue: (map['platform_revenue'] as num?)?.toDouble() ?? (gmv * 0.10),
+      platformRevenue: (map['platform_revenue'] as num?)?.toDouble() ?? (gmv * 0.03),
     );
   }
 }
@@ -610,6 +610,10 @@ class AdminOrderItem {
   final String? deliveryPartnerName;
   final String deliveryAddress;
   final DateTime createdAt;
+  final String sellerPayoutStatus; // 'paid', 'pending', 'processing'
+  final String? sellerPayoutRef;
+  final DateTime? sellerPaidAt;
+  final String? sellerPaymentMethod;
 
   const AdminOrderItem({
     required this.id,
@@ -629,14 +633,74 @@ class AdminOrderItem {
     this.deliveryPartnerName,
     required this.deliveryAddress,
     required this.createdAt,
+    this.sellerPayoutStatus = 'pending',
+    this.sellerPayoutRef,
+    this.sellerPaidAt,
+    this.sellerPaymentMethod,
   });
+
+  AdminOrderItem copyWith({
+    String? id,
+    String? consumerName,
+    String? consumerPhone,
+    String? shopName,
+    String? productTitles,
+    int? itemCount,
+    double? subtotal,
+    double? deliveryFee,
+    double? commissionAmount,
+    double? sellerPayout,
+    double? total,
+    String? paymentMethod,
+    String? paymentStatus,
+    String? orderStatus,
+    String? deliveryPartnerName,
+    String? deliveryAddress,
+    DateTime? createdAt,
+    String? sellerPayoutStatus,
+    String? sellerPayoutRef,
+    DateTime? sellerPaidAt,
+    String? sellerPaymentMethod,
+  }) {
+    return AdminOrderItem(
+      id: id ?? this.id,
+      consumerName: consumerName ?? this.consumerName,
+      consumerPhone: consumerPhone ?? this.consumerPhone,
+      shopName: shopName ?? this.shopName,
+      productTitles: productTitles ?? this.productTitles,
+      itemCount: itemCount ?? this.itemCount,
+      subtotal: subtotal ?? this.subtotal,
+      deliveryFee: deliveryFee ?? this.deliveryFee,
+      commissionAmount: commissionAmount ?? this.commissionAmount,
+      sellerPayout: sellerPayout ?? this.sellerPayout,
+      total: total ?? this.total,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      orderStatus: orderStatus ?? this.orderStatus,
+      deliveryPartnerName: deliveryPartnerName ?? this.deliveryPartnerName,
+      deliveryAddress: deliveryAddress ?? this.deliveryAddress,
+      createdAt: createdAt ?? this.createdAt,
+      sellerPayoutStatus: sellerPayoutStatus ?? this.sellerPayoutStatus,
+      sellerPayoutRef: sellerPayoutRef ?? this.sellerPayoutRef,
+      sellerPaidAt: sellerPaidAt ?? this.sellerPaidAt,
+      sellerPaymentMethod: sellerPaymentMethod ?? this.sellerPaymentMethod,
+    );
+  }
 
   factory AdminOrderItem.fromMap(Map<String, dynamic> map) {
     final sub = (map['subtotal'] as num?)?.toDouble() ?? 0.0;
     final fee = (map['delivery_fee'] as num?)?.toDouble() ?? 30.0;
-    final tot = (map['total'] as num?)?.toDouble() ?? (sub + fee);
-    final comm = (map['commission_amount'] as num?)?.toDouble() ?? (sub * 0.10);
-    final payout = (map['seller_payout_amount'] as num?)?.toDouble() ?? (sub - comm);
+    final pFee = (map['platform_fee'] as num?)?.toDouble() ?? 10.0;
+    final totRaw = (map['total_amount'] as num?)?.toDouble() ?? (map['total'] as num?)?.toDouble() ?? 0.0;
+    final tot = totRaw > 0 ? totRaw : (sub + fee + pFee);
+    final commRaw = (map['commission_amount'] as num?)?.toDouble() ?? 0.0;
+    final comm = commRaw > 0 ? commRaw : (sub * 0.03);
+    final payoutRaw = (map['seller_payout_amount'] as num?)?.toDouble() ?? 0.0;
+    final payout = payoutRaw > 0 ? payoutRaw : (sub - comm);
+    final payoutStatus = map['seller_payout_status']?.toString() ?? (map['is_seller_paid'] == true ? 'paid' : 'pending');
+    final payoutRef = map['seller_payout_ref']?.toString();
+    final paidAt = map['seller_paid_at'] != null ? DateTime.tryParse(map['seller_paid_at'].toString()) : null;
+    final payMethod = map['seller_payment_method']?.toString();
 
     return AdminOrderItem(
       id: map['id']?.toString() ?? '',
@@ -656,6 +720,10 @@ class AdminOrderItem {
       deliveryPartnerName: map['delivery_partner_name'],
       deliveryAddress: map['delivery_address_str'] ?? 'Jaipur, Rajasthan',
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at']) ?? DateTime.now() : DateTime.now(),
+      sellerPayoutStatus: payoutStatus,
+      sellerPayoutRef: payoutRef,
+      sellerPaidAt: paidAt,
+      sellerPaymentMethod: payMethod,
     );
   }
 }
@@ -749,7 +817,152 @@ class AdminChartPoint {
   });
 }
 
-/// 8. Master Consolidated Admin Metrics & Data Model
+/// 8. Shop-wise Commission & Payback Summary Model
+class ShopSettlementSummary {
+  final String shopId;
+  final String shopName;
+  final String ownerName;
+  final String bankAccountNumber;
+  final String bankIfsc;
+  final String bankName;
+  final int eligibleOrdersCount;
+  final double grossSubtotal;
+  final double commissionRate;
+  final double commissionAmount;
+  final double netPayback;
+  final double amountPaid;
+  final double pendingPayback;
+  final String settlementStatus; // 'Settled', 'Partial', 'Pending'
+
+  const ShopSettlementSummary({
+    required this.shopId,
+    required this.shopName,
+    required this.ownerName,
+    required this.bankAccountNumber,
+    required this.bankIfsc,
+    required this.bankName,
+    required this.eligibleOrdersCount,
+    required this.grossSubtotal,
+    this.commissionRate = 3.0,
+    required this.commissionAmount,
+    required this.netPayback,
+    required this.amountPaid,
+    required this.pendingPayback,
+    required this.settlementStatus,
+  });
+}
+
+/// 9. Per-Order Delivery Trip Earnings Record
+class DeliveryOrderTripRecord {
+  final String orderId;
+  final String orderNumber;
+  final DateTime deliveryTime;
+  final double orderAmount;
+  final double tripEarning; // Payout for this trip
+  final String deliveryZone;
+  final String status;
+
+  const DeliveryOrderTripRecord({
+    required this.orderId,
+    required this.orderNumber,
+    required this.deliveryTime,
+    required this.orderAmount,
+    required this.tripEarning,
+    required this.deliveryZone,
+    this.status = 'Completed',
+  });
+}
+
+/// 10. Delivery Fleet Monthly Salary Summary Model
+class DeliveryMonthlySalarySummary {
+  final String driverId;
+  final String driverName;
+  final String phone;
+  final String vehicleType;
+  final String vehicleNumber;
+  final String upiId;
+  final String bankAccount;
+  final String monthName; // e.g. 'October 2026'
+  final int completedOrdersCount;
+  final double perOrderEarningsTotal;
+  final double monthlyIncentiveBonus;
+  final double penaltyDeductions;
+  final double totalCalculatedSalary;
+  final double amountPaid;
+  final double pendingSalary;
+  final String salaryStatus; // 'Paid', 'Pending', 'Processing'
+  final String? paymentReference;
+  final DateTime? paidAt;
+  final List<DeliveryOrderTripRecord> tripRecords;
+
+  const DeliveryMonthlySalarySummary({
+    required this.driverId,
+    required this.driverName,
+    required this.phone,
+    required this.vehicleType,
+    required this.vehicleNumber,
+    required this.upiId,
+    this.bankAccount = 'SBI 30981122334',
+    required this.monthName,
+    required this.completedOrdersCount,
+    required this.perOrderEarningsTotal,
+    this.monthlyIncentiveBonus = 2500.0,
+    this.penaltyDeductions = 0.0,
+    required this.totalCalculatedSalary,
+    this.amountPaid = 0.0,
+    required this.pendingSalary,
+    this.salaryStatus = 'Pending',
+    this.paymentReference,
+    this.paidAt,
+    this.tripRecords = const [],
+  });
+
+  DeliveryMonthlySalarySummary copyWith({
+    String? driverId,
+    String? driverName,
+    String? phone,
+    String? vehicleType,
+    String? vehicleNumber,
+    String? upiId,
+    String? bankAccount,
+    String? monthName,
+    int? completedOrdersCount,
+    double? perOrderEarningsTotal,
+    double? monthlyIncentiveBonus,
+    double? penaltyDeductions,
+    double? totalCalculatedSalary,
+    double? amountPaid,
+    double? pendingSalary,
+    String? salaryStatus,
+    String? paymentReference,
+    DateTime? paidAt,
+    List<DeliveryOrderTripRecord>? tripRecords,
+  }) {
+    return DeliveryMonthlySalarySummary(
+      driverId: driverId ?? this.driverId,
+      driverName: driverName ?? this.driverName,
+      phone: phone ?? this.phone,
+      vehicleType: vehicleType ?? this.vehicleType,
+      vehicleNumber: vehicleNumber ?? this.vehicleNumber,
+      upiId: upiId ?? this.upiId,
+      bankAccount: bankAccount ?? this.bankAccount,
+      monthName: monthName ?? this.monthName,
+      completedOrdersCount: completedOrdersCount ?? this.completedOrdersCount,
+      perOrderEarningsTotal: perOrderEarningsTotal ?? this.perOrderEarningsTotal,
+      monthlyIncentiveBonus: monthlyIncentiveBonus ?? this.monthlyIncentiveBonus,
+      penaltyDeductions: penaltyDeductions ?? this.penaltyDeductions,
+      totalCalculatedSalary: totalCalculatedSalary ?? this.totalCalculatedSalary,
+      amountPaid: amountPaid ?? this.amountPaid,
+      pendingSalary: pendingSalary ?? this.pendingSalary,
+      salaryStatus: salaryStatus ?? this.salaryStatus,
+      paymentReference: paymentReference ?? this.paymentReference,
+      paidAt: paidAt ?? this.paidAt,
+      tripRecords: tripRecords ?? this.tripRecords,
+    );
+  }
+}
+
+/// 11. Master Consolidated Admin Metrics & Data Model
 class AdminMetricsModel {
   // 1. Core KPIs
   final double totalGmv;
@@ -773,7 +986,7 @@ class AdminMetricsModel {
 
   // 2. Financial Breakdown
   double get grossSales => totalGmv;
-  double get sellerEarnings => (totalGmv - totalCommissionEarned - (totalRefundsAmount * 0.90)).clamp(0.0, double.infinity);
+  double get sellerEarnings => (totalGmv - totalCommissionEarned - (totalRefundsAmount * 0.97)).clamp(0.0, double.infinity);
   double get netPlatformEarnings {
     final platformRefundLoss = totalRefundsAmount * (platformCommissionRate / 100);
     final net = (platformRevenue + totalAdRevenue + (totalDeliveryCharges * 0.20)) - gatewayCharges - platformRefundLoss;
@@ -791,6 +1004,8 @@ class AdminMetricsModel {
   final List<CityZoneMetric> zoneMetrics;
   final List<DisputeTicket> disputes;
   final List<AdminAuditLogItem> auditLogs;
+  final List<ShopSettlementSummary> shopSettlements;
+  final List<DeliveryMonthlySalarySummary> deliverySalaries;
 
   // 4. Trend Data for Graphs
   final List<AdminChartPoint> revenueTrends;
@@ -802,7 +1017,7 @@ class AdminMetricsModel {
 
   const AdminMetricsModel({
     this.totalGmv = 0.0,
-    this.platformCommissionRate = 10.0,
+    this.platformCommissionRate = 3.0,
     this.platformRevenue = 0.0,
     this.totalCommissionEarned = 0.0,
     this.totalDeliveryCharges = 0.0,
@@ -829,6 +1044,8 @@ class AdminMetricsModel {
     this.zoneMetrics = const [],
     this.disputes = const [],
     this.auditLogs = const [],
+    this.shopSettlements = const [],
+    this.deliverySalaries = const [],
     this.revenueTrends = const [],
     this.ordersTrends = const [],
     this.gmvTrends = const [],
@@ -868,6 +1085,8 @@ class AdminMetricsModel {
     List<CityZoneMetric>? zoneMetrics,
     List<DisputeTicket>? disputes,
     List<AdminAuditLogItem>? auditLogs,
+    List<ShopSettlementSummary>? shopSettlements,
+    List<DeliveryMonthlySalarySummary>? deliverySalaries,
     List<AdminChartPoint>? revenueTrends,
     List<AdminChartPoint>? ordersTrends,
     List<AdminChartPoint>? gmvTrends,
@@ -904,6 +1123,8 @@ class AdminMetricsModel {
       zoneMetrics: zoneMetrics ?? this.zoneMetrics,
       disputes: disputes ?? this.disputes,
       auditLogs: auditLogs ?? this.auditLogs,
+      shopSettlements: shopSettlements ?? this.shopSettlements,
+      deliverySalaries: deliverySalaries ?? this.deliverySalaries,
       revenueTrends: revenueTrends ?? this.revenueTrends,
       ordersTrends: ordersTrends ?? this.ordersTrends,
       gmvTrends: gmvTrends ?? this.gmvTrends,

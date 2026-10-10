@@ -65,7 +65,7 @@ class AdminAnalyticsScreen extends ConsumerWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: _KpiBox(
-                    label: 'Commission (10%)',
+                    label: 'Commission (3%)',
                     value: '₹${metrics.totalCommissionEarned.toStringAsFixed(0)}',
                     icon: Icons.account_balance_wallet,
                     color: AppTheme.successColor,
@@ -132,7 +132,7 @@ class AdminAnalyticsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   _buildFinancialLine('Gross Sales Merchandise (GMV)', '₹${metrics.totalGmv.toStringAsFixed(2)}', isBold: true),
-                  _buildFinancialLine('Platform Commission Earned (+10%)', '+₹${metrics.totalCommissionEarned.toStringAsFixed(2)}', color: AppTheme.successColor),
+                  _buildFinancialLine('Platform Commission Earned (+3%)', '+₹${metrics.totalCommissionEarned.toStringAsFixed(2)}', color: AppTheme.successColor),
                   _buildFinancialLine('Advertisement Revenue', '+₹${metrics.totalAdRevenue.toStringAsFixed(2)}', color: AppTheme.successColor),
                   _buildFinancialLine('Delivery & Convenience Charges', '+₹${metrics.totalDeliveryCharges.toStringAsFixed(2)}', color: AppTheme.successColor),
                   _buildFinancialLine('Gateway & Processing Charges (2%)', '-₹${metrics.gatewayCharges.toStringAsFixed(2)}', color: AppTheme.errorColor),
@@ -175,7 +175,7 @@ class AdminAnalyticsScreen extends ConsumerWidget {
                               style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                             ),
                             Text(
-                              '+₹${zone.platformRevenue.toStringAsFixed(0)} (10% Fee)',
+                              '+₹${zone.platformRevenue.toStringAsFixed(0)} (3% Fee)',
                               style: const TextStyle(color: AppTheme.successColor, fontWeight: FontWeight.bold, fontSize: 12),
                             ),
                           ],

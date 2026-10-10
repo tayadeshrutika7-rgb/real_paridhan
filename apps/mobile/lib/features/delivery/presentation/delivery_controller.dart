@@ -337,6 +337,131 @@ class DeliveryNotifier extends Notifier<DeliveryState> {
       return false;
     }
   }
+
+  /// Reject Delivery on Emergency Basis (charges ₹100 penalty on driver)
+  Future<bool> rejectDeliveryEmergency({
+    required String taskId,
+    required String orderId,
+    String? orderNumber,
+    String reason = 'Personal Emergency / Breakdown',
+  }) async {
+    state = state.copyWith(isLoading: true);
+    final ok = await _repository.rejectDeliveryEmergency(
+      taskId: taskId,
+      orderId: orderId,
+      driverId: _currentDriverId,
+      orderNumber: orderNumber,
+      reason: reason,
+    );
+
+    if (ok) {
+      final earnings = await _repository.getEarningsSummary(_currentDriverId);
+      final remainingIncoming = await _repository.getIncomingRequests(driverId: _currentDriverId);
+      final batches = DeliveryRouteBatchModel.findSamePathBatches(remainingIncoming);
+
+      state = state.copyWith(
+        isLoading: false,
+        clearActiveTrip: true,
+        clearOnTheWayOrder: true,
+        earnings: earnings,
+        incomingRequests: remainingIncoming,
+        availableBatches: batches,
+      );
+
+      final shortId = orderId.substring(0, orderId.length > 8 ? 8 : orderId.length);
+
+      // 1. Delivery notification for ₹100 penalty
+      ref.read(roleNotificationProvider(UserRole.delivery).notifier).postNotification(
+        title: 'Delivery Cancelled: ₹100 Penalty Applied ⚠️',
+        body: '₹100 has been debited from your driver account for personal emergency cancellation of order #$shortId.',
+        category: NotificationCategory.trip,
+        deepLink: '/delivery/earnings',
+      );
+
+      // 2. Admin operations notification
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'Driver Emergency Rejection (Penalty Debited)',
+        body: 'Partner $_currentDriverId cancelled order #$shortId due to: $reason. ₹100 penalty charged. Order re-queued for dispatch.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin',
+      );
+
+      return true;
+    } else {
+      state = state.copyWith(isLoading: false, errorMessage: 'Failed to cancel delivery.');
+      return false;
+    }
+  }
+
+  /// Report Customer Not Available at Time (0 penalty on driver, alerts seller & admin)
+  Future<bool> reportCustomerUnavailable({
+    required String taskId,
+    required String orderId,
+    String? orderNumber,
+    String notes = 'Customer not reachable / door locked',
+  }) async {
+    state = state.copyWith(isLoading: true);
+    final ok = await _repository.reportCustomerUnavailable(
+      taskId: taskId,
+      orderId: orderId,
+      driverId: _currentDriverId,
+      notes: notes,
+    );
+
+    if (ok) {
+      final earnings = await _repository.getEarningsSummary(_currentDriverId);
+      final remainingIncoming = await _repository.getIncomingRequests(driverId: _currentDriverId);
+      final batches = DeliveryRouteBatchModel.findSamePathBatches(remainingIncoming);
+
+      state = state.copyWith(
+        isLoading: false,
+        clearActiveTrip: true,
+        clearOnTheWayOrder: true,
+        earnings: earnings,
+        incomingRequests: remainingIncoming,
+        availableBatches: batches,
+      );
+
+      final shortId = orderId.substring(0, orderId.length > 8 ? 8 : orderId.length);
+
+      // 1. Delivery notification (zero penalty confirmed)
+      ref.read(roleNotificationProvider(UserRole.delivery).notifier).postNotification(
+        title: 'Issue Logged: Customer Not Available',
+        body: 'Reported customer unavailable for order #$shortId. Zero penalty debited to your driver account.',
+        category: NotificationCategory.trip,
+        deepLink: '/delivery',
+      );
+
+      // 2. Seller notification (so seller can review and cancel)
+      ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+        title: '⚠️ Pending Delivery: Customer Not Available',
+        body: 'Delivery partner could not deliver order #$shortId because customer was unavailable. Review order to cancel or reschedule.',
+        category: NotificationCategory.order,
+        deepLink: '/seller/orders',
+      );
+
+      // 3. Customer notification
+      ref.read(roleNotificationProvider(UserRole.consumer).notifier).postNotification(
+        title: 'Delivery Attempt Failed ⚠️',
+        body: 'Our delivery partner attempted doorstep delivery for order #$shortId but could not reach you. Please contact boutique support.',
+        category: NotificationCategory.order,
+        deepLink: '/order/$orderId',
+      );
+
+      // 4. Admin operations notification
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'Delivery Pending: Customer Unavailable',
+        body: 'Delivery attempt failed for order #$shortId ($notes). Awaiting seller/admin resolution.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin',
+      );
+
+      return true;
+    } else {
+      state = state.copyWith(isLoading: false, errorMessage: 'Failed to record customer unavailability.');
+      return false;
+    }
+  }
 }
 
 final deliveryProvider = NotifierProvider<DeliveryNotifier, DeliveryState>(() {

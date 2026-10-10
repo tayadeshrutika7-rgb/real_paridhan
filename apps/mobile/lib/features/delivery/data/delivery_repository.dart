@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/supabase_client.dart';
 import '../domain/delivery_task_model.dart';
@@ -140,6 +141,48 @@ class DeliveryRepository {
     ],
   );
 
+  /// Reset simulated in-memory state (useful for tests)
+  static void resetSimulatedState() {
+    _simulatedDutyOnline = true;
+    _simulatedActiveTrip = null;
+    _simulatedEarnings = DeliveryEarningsModel(
+      todayTripsCount: 4,
+      todayBaseEarnings: 320.0,
+      todayDistanceIncentive: 45.0,
+      todayTips: 30.0,
+      todayCodCollected: 1550.0,
+      pendingCodRemittance: 1550.0,
+      totalDistanceTodayKm: 18.4,
+      todayPenalties: 0.0,
+      penaltiesCount: 0,
+      penalties: const [],
+      trips: [
+        DeliveryTripSummary(
+          orderId: 'ord-past-01',
+          orderNumber: 'PRD-2026-7731',
+          shopName: 'Marwar Ethnic Wear',
+          dropArea: 'Vaishali Nagar, Jaipur',
+          distanceKm: 4.8,
+          payout: 95.0,
+          isCod: true,
+          codAmount: 1550.0,
+          completedAt: DateTime.now().subtract(const Duration(hours: 2)),
+        ),
+        DeliveryTripSummary(
+          orderId: 'ord-past-02',
+          orderNumber: 'PRD-2026-7650',
+          shopName: 'Jaipur Heritage Handlooms',
+          dropArea: 'Raja Park, Jaipur',
+          distanceKm: 3.2,
+          payout: 75.0,
+          isCod: false,
+          codAmount: 0.0,
+          completedAt: DateTime.now().subtract(const Duration(hours: 5)),
+        ),
+      ],
+    );
+  }
+
   /// Toggle Online/Offline Duty Status
   Future<bool> setDutyStatus({
     required bool isOnline,
@@ -211,9 +254,9 @@ class DeliveryRepository {
         });
       }).toList();
 
-      return orderList.isNotEmpty ? orderList : _simulatedAvailableRequests;
+      return orderList;
     } catch (e) {
-      return _simulatedAvailableRequests;
+      return [];
     }
   }
 
@@ -261,9 +304,9 @@ class DeliveryRepository {
         return task;
       }
 
-      return _simulatedActiveTrip;
+      return null;
     } catch (_) {
-      return _simulatedActiveTrip;
+      return null;
     }
   }
 
@@ -376,6 +419,7 @@ class DeliveryRepository {
   }
 
   /// Verify Customer 4-digit OTP & Complete Delivery Handover
+  /// STRICT: Only confirms delivery when the delivery partner enters the exact matching OTP
   Future<bool> verifyOtpAndCompleteDelivery({
     required String taskId,
     required String orderId,
@@ -384,13 +428,24 @@ class DeliveryRepository {
     required double codCollectedAmount,
     String? driverId,
   }) async {
-    // Validate OTP check against active task or database
+    final cleanOrderId = taskId.startsWith('task-') ? taskId.replaceFirst('task-', '') : orderId;
+
+    // In-memory / Mock mode
     final active = _simulatedActiveTrip;
     if (active != null && active.deliveryOtp.trim() != inputOtp.trim()) {
+      debugPrint('[DeliveryRepository] Mock OTP mismatch: Expected "${active.deliveryOtp}", Got "$inputOtp"');
       return false; // Invalid OTP
     }
 
     if (_client == null) {
+      if (active == null) {
+        // If no active trip, check if any task in simulated requests has matching OTP
+        final matchingReq = _simulatedAvailableRequests.where((t) => t.id == taskId || t.orderId == orderId).firstOrNull;
+        if (matchingReq != null && matchingReq.deliveryOtp.trim() != inputOtp.trim()) {
+          return false;
+        }
+      }
+
       if (active != null) {
         final completedSummary = DeliveryTripSummary(
           orderId: active.orderId,
@@ -418,41 +473,185 @@ class DeliveryRepository {
       return true;
     }
 
+    // Real Supabase verification
     try {
-      final orderRes = await _client
+      // 1. Fetch order's permanent delivery_otp
+      var orderRes = await _client
           .from('orders')
-          .select('delivery_otp')
-          .eq('id', orderId)
-          .single();
+          .select('id, delivery_otp, status')
+          .eq('id', cleanOrderId)
+          .maybeSingle();
 
-      final correctOtp = orderRes['delivery_otp'] as String?;
-      if (correctOtp != null && correctOtp.trim() != inputOtp.trim()) {
-        return false;
+      if (orderRes == null) {
+        orderRes = await _client
+            .from('orders')
+            .select('id, delivery_otp, status')
+            .eq('id', orderId)
+            .maybeSingle();
+      }
+
+      String? correctOtp = orderRes?['delivery_otp']?.toString()?.trim();
+
+      // 2. Fallback: check deliveries table if not found on orders
+      if (correctOtp == null || correctOtp.isEmpty) {
+        final delivRes = await _client
+            .from('deliveries')
+            .select('delivery_otp')
+            .or('id.eq.$taskId,order_id.eq.$cleanOrderId,order_id.eq.$orderId')
+            .maybeSingle();
+        correctOtp = delivRes?['delivery_otp']?.toString()?.trim();
+      }
+
+      // 3. Fallback: check active in-memory task
+      if ((correctOtp == null || correctOtp.isEmpty) && active != null) {
+        correctOtp = active.deliveryOtp.trim();
+      }
+
+      // STRICT VALIDATION: OTP must be present and must strictly match
+      if (correctOtp == null || correctOtp.isEmpty || correctOtp != inputOtp.trim()) {
+        debugPrint('[DeliveryRepository] OTP verification failed: Expected "$correctOtp", Got "${inputOtp.trim()}"');
+        return false; // Handover rejected!
       }
 
       final now = DateTime.now().toIso8601String();
-      // Mark delivery complete
+
+      // 4. Mark delivery record as delivered
       await _client.from('deliveries').update({
         'status': 'delivered',
         'delivered_at': now,
         'updated_at': now,
-      }).eq('id', taskId);
+      }).or('id.eq.$taskId,order_id.eq.$cleanOrderId,order_id.eq.$orderId');
 
-      // Mark order complete
+      // 5. Mark order record as delivered
       await _client.from('orders').update({
         'status': 'delivered',
+        'delivered_at': now,
+        if (isCod) 'cod_collected': true,
+        if (isCod) 'payment_status': 'paid',
         'updated_at': now,
-      }).eq('id', orderId);
+      }).or('id.eq.$cleanOrderId,id.eq.$orderId');
 
       _simulatedActiveTrip = null;
       return true;
+    } catch (e) {
+      debugPrint('[DeliveryRepository] Error during OTP verification: $e');
+      return false; // Error must NEVER confirm delivery!
+    }
+  }
+
+  /// Reject Delivery due to Personal Emergency / Breakdown
+  /// Charges ₹100 cancellation penalty on the delivery partner
+  Future<bool> rejectDeliveryEmergency({
+    required String taskId,
+    required String orderId,
+    required String driverId,
+    String? orderNumber,
+    String reason = 'Personal Emergency / Vehicle Breakdown',
+  }) async {
+    const penaltyAmount = 100.0;
+    final ordNum = orderNumber ?? _simulatedActiveTrip?.orderNumber ?? 'PRD-ORD';
+
+    // 1. Record simulated penalty
+    final penaltyItem = DeliveryPenaltyItem(
+      orderId: orderId,
+      orderNumber: ordNum,
+      amount: penaltyAmount,
+      reason: reason,
+      chargedAt: DateTime.now(),
+    );
+
+    _simulatedEarnings = _simulatedEarnings.copyWith(
+      todayPenalties: _simulatedEarnings.todayPenalties + penaltyAmount,
+      penaltiesCount: _simulatedEarnings.penaltiesCount + 1,
+      penalties: [penaltyItem, ..._simulatedEarnings.penalties],
+    );
+
+    _simulatedActiveTrip = null;
+
+    if (_client == null) {
+      return true;
+    }
+
+    try {
+      final now = DateTime.now().toIso8601String();
+      final cleanOrderId = taskId.startsWith('task-') ? taskId.replaceFirst('task-', '') : taskId;
+
+      // Update delivery record
+      await _client.from('deliveries').update({
+        'status': 'cancelled',
+        'rejection_type': 'emergency',
+        'rejection_reason': reason,
+        'penalty_charged': penaltyAmount,
+        'rejected_at': now,
+        'updated_at': now,
+      }).or('id.eq.$taskId,order_id.eq.$cleanOrderId');
+
+      // Record in delivery_penalties table
+      try {
+        await _client.from('delivery_penalties').insert({
+          'delivery_partner_id': driverId,
+          'order_id': cleanOrderId,
+          'amount': penaltyAmount,
+          'reason': reason,
+        });
+      } catch (_) {}
+
+      // Reset order back to confirmed so another driver can pick it up
+      await _client.from('orders').update({
+        'delivery_partner_id': null,
+        'status': 'confirmed',
+        'updated_at': now,
+      }).eq('id', cleanOrderId);
+
+      return true;
     } catch (_) {
-      _simulatedActiveTrip = null;
       return true;
     }
   }
 
-  /// Get driver earnings & COD summary
+  /// Report Delivery Attempt Failed because Customer was Not Available
+  /// Does NOT charge any penalty to the delivery partner
+  Future<bool> reportCustomerUnavailable({
+    required String taskId,
+    required String orderId,
+    required String driverId,
+    String notes = 'Customer not reachable / door locked',
+  }) async {
+    _simulatedActiveTrip = null;
+
+    if (_client == null) {
+      return true;
+    }
+
+    try {
+      final now = DateTime.now().toIso8601String();
+      final cleanOrderId = taskId.startsWith('task-') ? taskId.replaceFirst('task-', '') : taskId;
+
+      // Update delivery record
+      await _client.from('deliveries').update({
+        'status': 'customer_unavailable',
+        'rejection_type': 'customer_unavailable',
+        'rejection_reason': notes,
+        'rejected_at': now,
+        'updated_at': now,
+      }).or('id.eq.$taskId,order_id.eq.$cleanOrderId');
+
+      // Flag order with customer_unavailable so seller & admin can see and cancel if needed
+      await _client.from('orders').update({
+        'customer_unavailable': true,
+        'delivery_issue': 'customer_not_available',
+        'delivery_issue_notes': notes,
+        'delivery_attempted_at': now,
+        'updated_at': now,
+      }).eq('id', cleanOrderId);
+
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Get driver earnings & COD summary including penalties
   Future<DeliveryEarningsModel> getEarningsSummary(String driverId) async {
     if (_client == null) {
       return _simulatedEarnings;
@@ -465,47 +664,78 @@ class DeliveryRepository {
           .eq('delivery_partner_id', driverId)
           .eq('status', 'delivered');
 
-      final list = response as List;
-      if (list.isEmpty) return _simulatedEarnings;
+      final list = (response as List?) ?? [];
 
       double baseTotal = 0.0;
       double codTotal = 0.0;
+      double totalDistance = 0.0;
       final trips = <DeliveryTripSummary>[];
 
       for (final item in list) {
-        final fee = (item['delivery_fee'] as num?)?.toDouble() ?? 75.0;
+        final payout = (item['delivery_payout'] as num?)?.toDouble() ??
+            (item['delivery_fee'] as num?)?.toDouble() ??
+            85.0;
+        final dist = (item['distance_km'] as num?)?.toDouble() ?? 2.5;
         final order = item['order'] as Map<String, dynamic>? ?? {};
         final isCod = order['payment_method'] == 'cod';
         final codAmt = isCod ? ((order['total_amount'] as num?)?.toDouble() ?? 0.0) : 0.0;
 
-        baseTotal += fee;
+        baseTotal += payout;
         codTotal += codAmt;
+        totalDistance += dist;
 
         trips.add(DeliveryTripSummary(
           orderId: item['order_id'] ?? '',
           orderNumber: order['order_number'] ?? 'PRD-ORD',
           shopName: order['shop']?['name'] ?? 'Boutique',
           dropArea: 'Jaipur',
-          distanceKm: 4.0,
-          payout: fee,
+          distanceKm: dist,
+          payout: payout,
           isCod: isCod,
           codAmount: codAmt,
           completedAt: DateTime.tryParse(item['delivered_at'] ?? '') ?? DateTime.now(),
         ));
       }
 
+      // Fetch real penalties for this driver from Supabase
+      double totalPenalties = 0.0;
+      final penalties = <DeliveryPenaltyItem>[];
+      try {
+        final penRes = await _client
+            .from('delivery_penalties')
+            .select('*, order:orders(order_number)')
+            .eq('delivery_partner_id', driverId);
+
+        if (penRes is List && penRes.isNotEmpty) {
+          for (final p in penRes) {
+            final amt = (p['amount'] as num?)?.toDouble() ?? 100.0;
+            totalPenalties += amt;
+            penalties.add(DeliveryPenaltyItem(
+              orderId: p['order_id'] ?? '',
+              orderNumber: p['order']?['order_number'] ?? 'PRD-ORD',
+              amount: amt,
+              reason: p['reason'] ?? 'Emergency Rejection / Cancellation',
+              chargedAt: DateTime.tryParse(p['created_at'] ?? '') ?? DateTime.now(),
+            ));
+          }
+        }
+      } catch (_) {}
+
       return DeliveryEarningsModel(
         todayTripsCount: trips.length,
         todayBaseEarnings: baseTotal,
-        todayDistanceIncentive: 40.0,
-        todayTips: 25.0,
+        todayDistanceIncentive: 0.0,
+        todayTips: 0.0,
+        todayPenalties: totalPenalties,
+        penaltiesCount: penalties.length,
         todayCodCollected: codTotal,
         pendingCodRemittance: codTotal,
-        totalDistanceTodayKm: trips.length * 4.2,
+        totalDistanceTodayKm: totalDistance,
         trips: trips,
+        penalties: penalties,
       );
     } catch (_) {
-      return _simulatedEarnings;
+      return const DeliveryEarningsModel();
     }
   }
 }

@@ -430,6 +430,93 @@ class AdminNotifier extends Notifier<AdminDashboardState> {
     }
     return false;
   }
+
+  /// Disburse Net Seller Revenue (97%) Per Order with Audit Trail
+  Future<bool> paySellerForOrder({
+    required String orderId,
+    required String shopName,
+    required double amount,
+    required String paymentMethod,
+    required String transactionRef,
+    String adminName = 'Super Admin',
+  }) async {
+    final success = await _repository.paySellerForOrder(
+      orderId: orderId,
+      shopName: shopName,
+      amount: amount,
+      paymentMethod: paymentMethod,
+      transactionRef: transactionRef,
+      adminName: adminName,
+    );
+    if (success) {
+      // Invalidate relevant seller state
+      ref.invalidate(sellerProvider);
+
+      // Post notification to Seller
+      ref.read(roleNotificationProvider(UserRole.seller).notifier).postNotification(
+        title: 'Order Payout Disbursed 💰',
+        body: 'Revenue of ₹${amount.toStringAsFixed(2)} for Order #$orderId has been disbursed ($paymentMethod - Ref: $transactionRef).',
+        category: NotificationCategory.platform,
+        deepLink: '/seller/orders',
+      );
+
+      // Post notification to Admin
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'Seller Revenue Disbursed',
+        body: 'Disbursed ₹${amount.toStringAsFixed(2)} for Order #$orderId to $shopName (Ref: $transactionRef).',
+        category: NotificationCategory.platform,
+        deepLink: '/admin/orders',
+      );
+
+      await loadDashboard();
+      return true;
+    }
+    return false;
+  }
+
+  /// Disburse Monthly Delivery Partner Salary with Audit Trail
+  Future<bool> disburseDeliverySalary({
+    required String driverId,
+    required String driverName,
+    required String monthName,
+    required double amount,
+    required String paymentMethod,
+    required String transactionRef,
+    String adminName = 'Super Admin',
+  }) async {
+    final success = await _repository.disburseDeliverySalary(
+      driverId: driverId,
+      driverName: driverName,
+      monthName: monthName,
+      amount: amount,
+      paymentMethod: paymentMethod,
+      transactionRef: transactionRef,
+      adminName: adminName,
+    );
+    if (success) {
+      ref.invalidate(deliveryProvider);
+
+      // Post notification to Delivery Partner
+      ref.read(roleNotificationProvider(UserRole.delivery).notifier).postNotification(
+        title: 'Monthly Salary Credited! 💵',
+        body: 'Your calculated monthly salary of ₹${amount.toStringAsFixed(2)} for $monthName has been processed (Ref: $transactionRef).',
+        category: NotificationCategory.platform,
+        deepLink: '/delivery/earnings',
+      );
+
+      // Post notification to Admin
+      ref.read(roleNotificationProvider(UserRole.admin).notifier).postNotification(
+        title: 'Delivery Salary Disbursed',
+        body: 'Disbursed ₹${amount.toStringAsFixed(2)} to $driverName for $monthName.',
+        category: NotificationCategory.platform,
+        deepLink: '/admin/delivery',
+      );
+
+      await loadDashboard();
+      return true;
+    }
+    return false;
+  }
 }
 
 final adminProvider = NotifierProvider<AdminNotifier, AdminDashboardState>(() {

@@ -52,17 +52,17 @@ void main() {
       expect(bargainedItem.itemTotal, 2400.0);
     });
 
-    test('Razorpay Route 90/10 split payment calculations', () {
-      const subtotal = 2000.0;
-      const commissionPercentage = 10.0;
+    test('Razorpay Route 97/3 split payment calculations', () {
+      const subtotal = 1000.0;
+      const commissionPercentage = 3.0;
 
       final amountInPaise = (subtotal * 100).round();
       final commissionPaise = ((amountInPaise * commissionPercentage) / 100).round();
       final sellerTransferPaise = amountInPaise - commissionPaise;
 
-      expect(amountInPaise, 200000); // 2,00,000 paise (₹2,000)
-      expect(commissionPaise, 20000); // ₹200 platform commission (10%)
-      expect(sellerTransferPaise, 180000); // ₹1,800 seller payout (90%)
+      expect(amountInPaise, 100000); // 1,00,000 paise (₹1,000)
+      expect(commissionPaise, 3000); // ₹30 platform commission (3%)
+      expect(sellerTransferPaise, 97000); // ₹970 seller payout (97%)
       expect(sellerTransferPaise + commissionPaise, amountInPaise);
     });
 
@@ -128,6 +128,42 @@ void main() {
       expect(order.deliveryOtp.length, 4);
       expect(order.statusStepIndex, 3); // Out for Delivery is step index 3
       expect(order.statusLabel, 'Out for Delivery');
+    });
+
+    test('Order delivery OTP is permanent, static, and unique per order', () {
+      const orderId1 = 'ord-2026-9730';
+      const orderId2 = 'ord-2026-8812';
+
+      // 1. Deterministic OTP generation never changes for the same order
+      final otp1a = OrderModel.generateDeterministicOtp(orderId1);
+      final otp1b = OrderModel.generateDeterministicOtp(orderId1);
+      expect(otp1a, otp1b);
+      expect(otp1a.length, 4);
+      expect(int.tryParse(otp1a), isNotNull);
+
+      // 2. Different orders get different OTPs
+      final otp2 = OrderModel.generateDeterministicOtp(orderId2);
+      expect(otp2.length, 4);
+      expect(otp1a != otp2, isTrue);
+
+      // 3. Stored OTP from JSON is preserved and never overwritten
+      final orderWithOtp = OrderModel.fromJson({
+        'id': orderId1,
+        'order_number': 'PRD-2026-9730',
+        'consumer_id': 'c-1',
+        'shop_id': 's-1',
+        'subtotal': 1000.0,
+        'delivery_fee': 50.0,
+        'platform_fee': 10.0,
+        'total_amount': 1060.0,
+        'status': 'confirmed',
+        'payment_method': 'cod',
+        'payment_status': 'pending',
+        'delivery_address': {'full_name': 'Aarav', 'phone': '9876543210', 'address_line1': 'Jaipur', 'pincode': '302001'},
+        'delivery_otp': '8645',
+      });
+
+      expect(orderWithOtp.deliveryOtp, '8645'); // Stays exactly as 8645!
     });
   });
 }

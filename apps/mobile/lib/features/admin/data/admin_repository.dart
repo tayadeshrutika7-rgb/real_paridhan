@@ -21,17 +21,23 @@ class AdminRepository {
   static final Set<String> _locallyRejectedShopIds = {};
   static final Set<String> _locallyApprovedDriverIds = {};
   static final Set<String> _locallyRejectedDriverIds = {};
+  static final Map<String, Map<String, dynamic>> _locallyPaidOrderPayouts = {};
+  static final Map<String, Map<String, dynamic>> _locallyPaidDriverSalaries = {};
 
   static const _kApprovedShopsKey = 'paridhan_approved_shop_ids';
   static const _kRejectedShopsKey = 'paridhan_rejected_shop_ids';
   static const _kApprovedDriversKey = 'paridhan_approved_driver_ids';
   static const _kRejectedDriversKey = 'paridhan_rejected_driver_ids';
+  static const _kPaidOrderPayoutsKey = 'paridhan_paid_order_payouts_map';
+  static const _kPaidDriverSalariesKey = 'paridhan_paid_driver_salaries_map';
 
   static void resetLocallyCachedStatus() {
     _locallyApprovedShopIds.clear();
     _locallyRejectedShopIds.clear();
     _locallyApprovedDriverIds.clear();
     _locallyRejectedDriverIds.clear();
+    _locallyPaidOrderPayouts.clear();
+    _locallyPaidDriverSalaries.clear();
     _initSimulatedBoutiques();
   }
 
@@ -61,6 +67,26 @@ class AdminRepository {
       _locallyRejectedShopIds.addAll(rejectedShops);
       _locallyApprovedDriverIds.addAll(approvedDrivers);
       _locallyRejectedDriverIds.addAll(rejectedDrivers);
+
+      final payoutsJson = prefs.getString(_kPaidOrderPayoutsKey);
+      if (payoutsJson != null && payoutsJson.isNotEmpty) {
+        final decoded = jsonDecode(payoutsJson) as Map<String, dynamic>;
+        decoded.forEach((key, value) {
+          if (value is Map<String, dynamic>) {
+            _locallyPaidOrderPayouts[key] = value;
+          }
+        });
+      }
+
+      final salariesJson = prefs.getString(_kPaidDriverSalariesKey);
+      if (salariesJson != null && salariesJson.isNotEmpty) {
+        final decoded = jsonDecode(salariesJson) as Map<String, dynamic>;
+        decoded.forEach((key, value) {
+          if (value is Map<String, dynamic>) {
+            _locallyPaidDriverSalaries[key] = value;
+          }
+        });
+      }
     } catch (_) {}
   }
 
@@ -71,6 +97,8 @@ class AdminRepository {
       await prefs.setStringList(_kRejectedShopsKey, _locallyRejectedShopIds.toList());
       await prefs.setStringList(_kApprovedDriversKey, _locallyApprovedDriverIds.toList());
       await prefs.setStringList(_kRejectedDriversKey, _locallyRejectedDriverIds.toList());
+      await prefs.setString(_kPaidOrderPayoutsKey, jsonEncode(_locallyPaidOrderPayouts));
+      await prefs.setString(_kPaidDriverSalariesKey, jsonEncode(_locallyPaidDriverSalaries));
     } catch (_) {}
   }
 
@@ -254,9 +282,9 @@ class AdminRepository {
       itemCount: 1,
       subtotal: 3499.0,
       deliveryFee: 40.0,
-      commissionAmount: 349.90,
-      sellerPayout: 3149.10,
-      total: 3539.0,
+      commissionAmount: 104.97,
+      sellerPayout: 3394.03,
+      total: 3549.0,
       paymentMethod: 'razorpay',
       paymentStatus: 'paid',
       orderStatus: 'out_for_delivery',
@@ -273,9 +301,9 @@ class AdminRepository {
       itemCount: 2,
       subtotal: 2199.0,
       deliveryFee: 30.0,
-      commissionAmount: 219.90,
-      sellerPayout: 1979.10,
-      total: 2229.0,
+      commissionAmount: 65.97,
+      sellerPayout: 2133.03,
+      total: 2239.0,
       paymentMethod: 'razorpay',
       paymentStatus: 'paid',
       orderStatus: 'confirmed',
@@ -292,9 +320,9 @@ class AdminRepository {
       itemCount: 1,
       subtotal: 1899.0,
       deliveryFee: 30.0,
-      commissionAmount: 189.90,
-      sellerPayout: 1709.10,
-      total: 1929.0,
+      commissionAmount: 56.97,
+      sellerPayout: 1842.03,
+      total: 1939.0,
       paymentMethod: 'cod',
       paymentStatus: 'paid',
       orderStatus: 'delivered',
@@ -393,7 +421,15 @@ class AdminRepository {
     }).toList();
     final approvedList = _simulatedBoutiques.where((b) => b.status == KycStatus.approved || _locallyApprovedShopIds.contains(b.id) || _locallyApprovedShopIds.contains(b.shopName)).toList();
 
-    const commissionRate = 10.0;
+    double commissionRate = 3.0;
+    if (_client != null) {
+      try {
+        final cfgRes = await _client!.from('platform_config').select('value').eq('key', 'default_commission_rate').maybeSingle();
+        if (cfgRes != null && cfgRes['value'] != null && cfgRes['value']['rate'] != null) {
+          commissionRate = (cfgRes['value']['rate'] as num).toDouble();
+        }
+      } catch (_) {}
+    }
     const defaultGmv = 184500.0;
     const defaultAdRevenue = 5097.0;
     const defaultDeliveryCharges = 4860.0;
@@ -401,33 +437,33 @@ class AdminRepository {
     const defaultGatewayCharges = defaultGmv * 0.02; // 2% payment gateway charge
 
     final zoneMetrics = [
-      const CityZoneMetric(
+      CityZoneMetric(
         zoneName: 'Pink City (Johari & Bapu Bazaar)',
         activeBoutiques: 18,
         totalOrders: 64,
         gmvAmount: 78200.0,
-        platformRevenue: 7820.0,
+        platformRevenue: 78200.0 * (commissionRate / 100),
       ),
-      const CityZoneMetric(
+      CityZoneMetric(
         zoneName: 'C-Scheme & Civil Lines',
         activeBoutiques: 12,
         totalOrders: 42,
         gmvAmount: 49300.0,
-        platformRevenue: 4930.0,
+        platformRevenue: 49300.0 * (commissionRate / 100),
       ),
-      const CityZoneMetric(
+      CityZoneMetric(
         zoneName: 'Sanganer Print Hub',
         activeBoutiques: 14,
         totalOrders: 35,
         gmvAmount: 34100.0,
-        platformRevenue: 3410.0,
+        platformRevenue: 34100.0 * (commissionRate / 100),
       ),
-      const CityZoneMetric(
+      CityZoneMetric(
         zoneName: 'Malviya Nagar & WTP',
         activeBoutiques: 8,
         totalOrders: 21,
         gmvAmount: 22900.0,
-        platformRevenue: 2290.0,
+        platformRevenue: 22900.0 * (commissionRate / 100),
       ),
     ];
 
@@ -532,13 +568,37 @@ class AdminRepository {
         totalProducts: 18,
         totalOrders: 42,
         totalSales: 48600.0,
-        commissionGenerated: 4860.0,
-        sellerEarnings: 43740.0,
+        commissionGenerated: 48600.0 * (commissionRate / 100),
+        sellerEarnings: 48600.0 - (48600.0 * (commissionRate / 100)),
         registeredAt: b.submittedAt,
       );
     }).toList();
 
     if (_client == null) {
+      final activeOrders = _simulatedOrders.map((o) {
+        if (_locallyPaidOrderPayouts.containsKey(o.id)) {
+          final paidMap = _locallyPaidOrderPayouts[o.id]!;
+          return o.copyWith(
+            sellerPayoutStatus: 'paid',
+            sellerPayoutRef: paidMap['ref']?.toString(),
+            sellerPaidAt: paidMap['paidAt'] != null ? DateTime.tryParse(paidMap['paidAt'].toString()) : null,
+            sellerPaymentMethod: paidMap['method']?.toString(),
+          );
+        }
+        return o;
+      }).toList();
+
+      final computedShopSettlements = _computeShopSettlements(
+        _simulatedBoutiques,
+        activeOrders,
+        commissionRate,
+      );
+
+      final computedDeliverySalaries = _computeDeliverySalaries(
+        _simulatedFleet,
+        activeOrders,
+      );
+
       return AdminMetricsModel(
         totalGmv: defaultGmv,
         platformCommissionRate: commissionRate,
@@ -563,11 +623,13 @@ class AdminRepository {
         sellers: sellersList,
         customers: _simulatedCustomers,
         deliveryPartners: _simulatedFleet,
-        orders: _simulatedOrders,
+        orders: activeOrders,
         inventoryItems: inventoryItems,
         zoneMetrics: zoneMetrics,
         disputes: _simulatedDisputes,
         auditLogs: _simulatedAuditLogs,
+        shopSettlements: computedShopSettlements,
+        deliverySalaries: computedDeliverySalaries,
         revenueTrends: revenueTrends,
         ordersTrends: ordersTrends,
         categorySalesDistribution: categorySales,
@@ -640,21 +702,34 @@ class AdminRepository {
     double dbDeliveryFees = 0.0;
     final parsedOrders = <AdminOrderItem>[];
     try {
-      final ordersRes = await _client!.from('orders').select('*');
+      final ordersRes = await _client!.from('orders').select('*').order('created_at', ascending: false);
       for (final o in (ordersRes as List)) {
-        final amount = (o['total'] as num?)?.toDouble() ?? (o['total_amount'] as num?)?.toDouble() ?? 0.0;
-        final subtotal = (o['subtotal'] as num?)?.toDouble() ?? amount;
-        final comm = (o['commission_amount'] as num?)?.toDouble() ?? (subtotal * 0.10);
-        final fee = (o['delivery_fee'] as num?)?.toDouble() ?? 30.0;
+        final amountRaw = (o['total_amount'] as num?)?.toDouble() ?? (o['total'] as num?)?.toDouble() ?? 0.0;
+        final subtotal = (o['subtotal'] as num?)?.toDouble() ?? 0.0;
+        final fee = (o['delivery_fee'] as num?)?.toDouble() ?? 0.0;
+        final pFee = (o['platform_fee'] as num?)?.toDouble() ?? 10.0;
+        final amount = amountRaw > 0 ? amountRaw : (subtotal + fee + pFee);
+
+        final commRaw = (o['commission_amount'] as num?)?.toDouble() ?? 0.0;
+        final comm = commRaw > 0 ? commRaw : (subtotal * (commissionRate / 100));
+
         dbGmv += amount;
         dbCommission += comm;
         dbDeliveryFees += fee;
-        parsedOrders.add(AdminOrderItem.fromMap(o as Map<String, dynamic>));
+
+        var orderItem = AdminOrderItem.fromMap(o as Map<String, dynamic>);
+        if (_locallyPaidOrderPayouts.containsKey(orderItem.id)) {
+          final paidMap = _locallyPaidOrderPayouts[orderItem.id]!;
+          orderItem = orderItem.copyWith(
+            sellerPayoutStatus: 'paid',
+            sellerPayoutRef: paidMap['ref']?.toString(),
+            sellerPaidAt: paidMap['paidAt'] != null ? DateTime.tryParse(paidMap['paidAt'].toString()) : null,
+            sellerPaymentMethod: paidMap['method']?.toString(),
+          );
+        }
+        parsedOrders.add(orderItem);
       }
     } catch (_) {}
-    if (dbGmv == 0.0) dbGmv = defaultGmv;
-    if (dbCommission == 0.0) dbCommission = dbGmv * (commissionRate / 100);
-    if (dbDeliveryFees == 0.0) dbDeliveryFees = defaultDeliveryCharges;
 
     // ─── 3. ADVERTISEMENTS ───────────────────────────────────────────────────
     double dbAdRev = 0.0;
@@ -666,7 +741,6 @@ class AdminRepository {
         }
       }
     } catch (_) {}
-    if (dbAdRev == 0.0) dbAdRev = defaultAdRevenue;
 
     // ─── 4. RETURNS / DISPUTES ───────────────────────────────────────────────
     double dbRefunds = 0.0;
@@ -679,10 +753,6 @@ class AdminRepository {
         parsedDisputes.add(DisputeTicket.fromMap(r as Map<String, dynamic>));
       }
     } catch (_) {}
-    if (dbRefunds == 0.0 || dbRefunds > dbGmv * 0.08) {
-      dbRefunds = (dbGmv * 0.025).clamp(250.0, 1500.0);
-    }
-    if (parsedDisputes.isEmpty) parsedDisputes.addAll(_simulatedDisputes);
 
     // ─── 5. AUDIT LOGS ───────────────────────────────────────────────────────
     final parsedLogs = <AdminAuditLogItem>[];
@@ -692,7 +762,91 @@ class AdminRepository {
         parsedLogs.add(AdminAuditLogItem.fromMap(l as Map<String, dynamic>));
       }
     } catch (_) {}
-    if (parsedLogs.isEmpty) parsedLogs.addAll(_simulatedAuditLogs);
+
+    // ─── 6. LIVE PROFILES COUNT (CONSUMERS & RIDERS) ─────────────────────────
+    int realConsumerCount = 0;
+    int realDeliveryCount = 0;
+    try {
+      final profRes = await _client!.from('profiles').select('id, role');
+      for (final p in (profRes as List)) {
+        final role = p['role']?.toString().toLowerCase();
+        if (role == 'consumer') realConsumerCount++;
+        if (role == 'delivery') realDeliveryCount++;
+      }
+    } catch (_) {}
+
+    // ─── 7. REAL BOUTIQUES REVENUE BREAKDOWN ─────────────────────────────────
+    final liveSellersList = dbShops.map((b) {
+      final shopOrders = parsedOrders.where((o) =>
+          o.shopName.toLowerCase() == b.shopName.toLowerCase() ||
+          o.id == b.id ||
+          o.id == b.sellerId).toList();
+      final totalShopOrders = shopOrders.length;
+      final totalShopSales = shopOrders.fold<double>(0.0, (acc, curr) => acc + curr.total);
+      final commGen = shopOrders.fold<double>(0.0, (acc, curr) => acc + curr.commissionAmount);
+      final earnings = shopOrders.fold<double>(0.0, (acc, curr) => acc + curr.sellerPayout);
+
+      return AdminSellerItem(
+        id: b.id,
+        shopName: b.shopName,
+        ownerName: b.ownerName,
+        email: b.ownerEmail,
+        phone: b.ownerPhone,
+        address: b.address,
+        cityZone: b.cityZone,
+        gstin: b.gstin,
+        status: b.status == KycStatus.approved ? 'verified' : 'pending',
+        kycStatus: b.status,
+        totalProducts: 10,
+        totalOrders: totalShopOrders,
+        totalSales: totalShopSales,
+        commissionGenerated: commGen,
+        sellerEarnings: earnings,
+        registeredAt: b.submittedAt,
+      );
+    }).toList();
+
+    // ─── 8. REAL DYNAMIC CHART TRENDS (LAST 7 DAYS) ──────────────────────────
+    final liveRevenueTrends = <AdminChartPoint>[];
+    final liveOrdersTrends = <AdminChartPoint>[];
+    final now = DateTime.now();
+    for (int i = 6; i >= 0; i--) {
+      final d = now.subtract(Duration(days: i));
+      final dayLabel = '${d.day}/${d.month}';
+      final dayOrders = parsedOrders.where((o) =>
+          o.createdAt.year == d.year &&
+          o.createdAt.month == d.month &&
+          o.createdAt.day == d.day).toList();
+      final dayOrderCount = dayOrders.length.toDouble();
+      final dayRev = dayOrders.fold<double>(0.0, (acc, cur) => acc + cur.total);
+      final dayComm = dayOrders.fold<double>(0.0, (acc, cur) => acc + cur.commissionAmount);
+
+      liveOrdersTrends.add(AdminChartPoint(label: dayLabel, value: dayOrderCount));
+      liveRevenueTrends.add(AdminChartPoint(label: dayLabel, value: dayRev, secondaryValue: dayComm));
+    }
+
+    final liveOrderStatusDist = [
+      AdminChartPoint(label: 'Delivered', value: parsedOrders.where((o) => o.orderStatus == 'delivered').length.toDouble()),
+      AdminChartPoint(label: 'Out for Delivery', value: parsedOrders.where((o) => o.orderStatus == 'out_for_delivery').length.toDouble()),
+      AdminChartPoint(label: 'Confirmed / Packing', value: parsedOrders.where((o) => o.orderStatus == 'confirmed' || o.orderStatus == 'packed').length.toDouble()),
+      AdminChartPoint(label: 'Placed / Pending', value: parsedOrders.where((o) => o.orderStatus == 'placed' || o.orderStatus == 'pending').length.toDouble()),
+      AdminChartPoint(label: 'Cancelled / Returned', value: parsedOrders.where((o) => o.orderStatus == 'cancelled' || o.orderStatus == 'returned').length.toDouble()),
+    ];
+
+    final livePaymentDist = [
+      AdminChartPoint(label: 'Razorpay UPI / Online', value: parsedOrders.where((o) => o.paymentMethod.toLowerCase() == 'razorpay').length.toDouble()),
+      AdminChartPoint(label: 'Cash on Delivery (COD)', value: parsedOrders.where((o) => o.paymentMethod.toLowerCase() == 'cod').length.toDouble()),
+    ];
+
+    final computedShopSettlements = _computeShopSettlements(
+      dbShops.isNotEmpty ? dbShops : _simulatedBoutiques,
+      parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
+      commissionRate,
+    );
+    final computedDeliverySalaries = _computeDeliverySalaries(
+      _simulatedFleet,
+      parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
+    );
 
     return AdminMetricsModel(
       totalGmv: dbGmv,
@@ -703,31 +857,33 @@ class AdminRepository {
       gatewayCharges: dbGmv * 0.02,
       totalRefundsAmount: dbRefunds,
       totalAdRevenue: dbAdRev,
-      totalOrdersCount: parsedOrders.isNotEmpty ? parsedOrders.length : 162,
-      totalCustomersCount: _simulatedCustomers.length + 180,
+      totalOrdersCount: parsedOrders.length,
+      totalCustomersCount: realConsumerCount > 0 ? realConsumerCount : parsedOrders.length,
       totalSellersCount: dbShops.length,
       activeBoutiquesCount: currentApproved.length,
       pendingKycCount: currentPending.length,
       suspendedSellersCount: dbShops.where((s) => s.status == KycStatus.rejected).length,
-      onDutyDeliveryFleetCount: 14,
-      totalDeliveryPartnersCount: 22,
+      onDutyDeliveryFleetCount: realDeliveryCount,
+      totalDeliveryPartnersCount: realDeliveryCount,
       pendingOrdersCount: parsedOrders.where((o) => o.orderStatus == 'placed' || o.orderStatus == 'pending').length,
       openDisputesCount: parsedDisputes.where((d) => !d.isResolved).length,
       pendingBoutiques: currentPending,
       allBoutiques: dbShops,
-      sellers: sellersList,
+      sellers: liveSellersList,
       customers: _simulatedCustomers,
       deliveryPartners: _simulatedFleet,
-      orders: parsedOrders.isNotEmpty ? parsedOrders : _simulatedOrders,
+      orders: parsedOrders,
       inventoryItems: inventoryItems,
       zoneMetrics: zoneMetrics,
       disputes: parsedDisputes,
       auditLogs: parsedLogs,
-      revenueTrends: revenueTrends,
-      ordersTrends: ordersTrends,
+      shopSettlements: computedShopSettlements,
+      deliverySalaries: computedDeliverySalaries,
+      revenueTrends: liveRevenueTrends,
+      ordersTrends: liveOrdersTrends,
       categorySalesDistribution: categorySales,
-      orderStatusDistribution: orderStatusDist,
-      paymentMethodDistribution: paymentDist,
+      orderStatusDistribution: liveOrderStatusDist,
+      paymentMethodDistribution: livePaymentDist,
     );
   }
 
@@ -1117,5 +1273,292 @@ class AdminRepository {
     } catch (_) {
       return true;
     }
+  }
+
+  // ==========================================
+  // FINANCIAL SETTLEMENTS & SALARY METHODS
+  // ==========================================
+
+  List<ShopSettlementSummary> _computeShopSettlements(
+    List<BoutiqueVerificationItem> shops,
+    List<AdminOrderItem> ordersList,
+    double rate,
+  ) {
+    return shops.map((shop) {
+      final shopOrders = ordersList.where((o) =>
+        o.shopName.toLowerCase() == shop.shopName.toLowerCase() ||
+        o.id == shop.id ||
+        o.id == shop.sellerId).toList();
+
+      final eligibleCount = shopOrders.isNotEmpty ? shopOrders.length : 1;
+      final grossSubtotal = shopOrders.isNotEmpty
+          ? shopOrders.fold<double>(0.0, (acc, o) => acc + o.subtotal)
+          : 45000.0;
+      final commAmount = double.parse((grossSubtotal * (rate / 100)).toStringAsFixed(2));
+      final netPayback = double.parse((grossSubtotal - commAmount).toStringAsFixed(2));
+
+      double paid = 0.0;
+      for (final o in shopOrders) {
+        if (o.sellerPayoutStatus == 'paid' || _locallyPaidOrderPayouts.containsKey(o.id)) {
+          paid += o.sellerPayout;
+        }
+      }
+      final pending = (netPayback - paid).clamp(0.0, double.infinity);
+      final status = pending == 0 ? 'Settled' : (paid > 0 ? 'Partial' : 'Pending');
+
+      return ShopSettlementSummary(
+        shopId: shop.id,
+        shopName: shop.shopName,
+        ownerName: shop.ownerName,
+        bankAccountNumber: shop.bankAccountNumber,
+        bankIfsc: shop.bankIfsc,
+        bankName: shop.bankName,
+        eligibleOrdersCount: eligibleCount,
+        grossSubtotal: grossSubtotal,
+        commissionRate: rate,
+        commissionAmount: commAmount,
+        netPayback: netPayback,
+        amountPaid: paid,
+        pendingPayback: pending,
+        settlementStatus: status,
+      );
+    }).toList();
+  }
+
+  List<DeliveryMonthlySalarySummary> _computeDeliverySalaries(
+    List<AdminDeliveryPartnerItem> fleet,
+    List<AdminOrderItem> ordersList,
+  ) {
+    const month = 'October 2026';
+    return fleet.map((driver) {
+      final driverOrders = ordersList.where((o) =>
+        o.deliveryPartnerName != null &&
+        o.deliveryPartnerName!.toLowerCase().contains(driver.name.toLowerCase().split(' ').first)).toList();
+
+      final tripRecords = <DeliveryOrderTripRecord>[];
+      if (driverOrders.isNotEmpty) {
+        for (final o in driverOrders) {
+          tripRecords.add(DeliveryOrderTripRecord(
+            orderId: o.id,
+            orderNumber: o.id,
+            deliveryTime: o.createdAt,
+            orderAmount: o.total,
+            tripEarning: 70.0,
+            deliveryZone: o.deliveryAddress,
+            status: 'Delivered & Confirmed',
+          ));
+        }
+      } else {
+        tripRecords.addAll([
+          DeliveryOrderTripRecord(
+            orderId: 'PRD-2026-8812',
+            orderNumber: 'PRD-2026-8812',
+            deliveryTime: DateTime.now().subtract(const Duration(hours: 2)),
+            orderAmount: 3549.0,
+            tripEarning: 70.0,
+            deliveryZone: 'B-24, Tilak Nagar, Jaipur',
+          ),
+          DeliveryOrderTripRecord(
+            orderId: 'PRD-2026-6541',
+            orderNumber: 'PRD-2026-6541',
+            deliveryTime: DateTime.now().subtract(const Duration(days: 1)),
+            orderAmount: 1939.0,
+            tripEarning: 70.0,
+            deliveryZone: '108, Malviya Nagar, Near WTP, Jaipur',
+          ),
+          DeliveryOrderTripRecord(
+            orderId: 'PRD-2026-4419',
+            orderNumber: 'PRD-2026-4419',
+            deliveryTime: DateTime.now().subtract(const Duration(days: 2)),
+            orderAmount: 2240.0,
+            tripEarning: 70.0,
+            deliveryZone: 'C-Scheme, Ashok Nagar, Jaipur',
+          ),
+        ]);
+      }
+
+      final ordersDelivered = driver.ordersDelivered > 0 ? driver.ordersDelivered : tripRecords.length;
+      final perOrderTotal = ordersDelivered * 70.0;
+      final incentive = 2500.0;
+      final penalty = 0.0;
+      final totalSalary = perOrderTotal + incentive - penalty;
+
+      final salaryKey = '${driver.id}_$month';
+      final isPaid = _locallyPaidDriverSalaries.containsKey(salaryKey);
+      final paidMap = _locallyPaidDriverSalaries[salaryKey];
+      final paidAmount = isPaid ? totalSalary : 0.0;
+      final pendingAmount = isPaid ? 0.0 : totalSalary;
+      final status = isPaid ? 'Paid' : 'Pending';
+
+      return DeliveryMonthlySalarySummary(
+        driverId: driver.id,
+        driverName: driver.name,
+        phone: driver.phone,
+        vehicleType: driver.vehicleType,
+        vehicleNumber: driver.vehicleNumber,
+        upiId: driver.upiId ?? '${driver.name.toLowerCase().replaceAll(' ', '')}@upi',
+        bankAccount: 'SBI 30981122334',
+        monthName: month,
+        completedOrdersCount: ordersDelivered,
+        perOrderEarningsTotal: perOrderTotal,
+        monthlyIncentiveBonus: incentive,
+        penaltyDeductions: penalty,
+        totalCalculatedSalary: totalSalary,
+        amountPaid: paidAmount,
+        pendingSalary: pendingAmount,
+        salaryStatus: status,
+        paymentReference: paidMap?['ref']?.toString(),
+        paidAt: paidMap?['paidAt'] != null ? DateTime.tryParse(paidMap!['paidAt'].toString()) : null,
+        tripRecords: tripRecords,
+      );
+    }).toList();
+  }
+
+  Future<bool> paySellerForOrder({
+    required String orderId,
+    required String shopName,
+    required double amount,
+    required String paymentMethod,
+    required String transactionRef,
+    String adminName = 'Super Admin',
+  }) async {
+    await _loadPersistedStatus();
+    final now = DateTime.now();
+    _locallyPaidOrderPayouts[orderId] = {
+      'status': 'paid',
+      'amount': amount,
+      'ref': transactionRef,
+      'method': paymentMethod,
+      'paidAt': now.toIso8601String(),
+      'shopName': shopName,
+    };
+    await _persistStatus();
+
+    final idx = _simulatedOrders.indexWhere((o) => o.id == orderId);
+    if (idx != -1) {
+      _simulatedOrders[idx] = _simulatedOrders[idx].copyWith(
+        sellerPayoutStatus: 'paid',
+        sellerPayoutRef: transactionRef,
+        sellerPaidAt: now,
+        sellerPaymentMethod: paymentMethod,
+      );
+    }
+
+    if (_client != null) {
+      try {
+        await _client.from('orders').update({
+          'seller_payout_status': 'paid',
+          'seller_payout_ref': transactionRef,
+          'seller_paid_at': now.toIso8601String(),
+          'seller_payment_method': paymentMethod,
+        }).eq('id', orderId);
+      } catch (_) {}
+
+      try {
+        await _client.from('settlement_transactions').insert({
+          'recipient_type': 'seller',
+          'order_id': orderId,
+          'amount': amount,
+          'currency': 'INR',
+          'payment_method': paymentMethod,
+          'external_reference': transactionRef,
+          'status': 'paid',
+          'metadata': {'shop_name': shopName, 'disbursed_by': adminName},
+        });
+      } catch (_) {}
+
+      try {
+        await _client.from('admin_audit_logs').insert({
+          'admin_name': adminName,
+          'action': 'SELLER_PAYOUT_DISBURSED',
+          'entity': 'order_settlement',
+          'entity_id': orderId,
+          'details': 'Disbursed ₹${amount.toStringAsFixed(2)} revenue for order #$orderId to $shopName via $paymentMethod (Ref: $transactionRef)',
+          'new_value': {
+            'order_id': orderId,
+            'shop_name': shopName,
+            'amount': amount,
+            'status': 'paid',
+            'ref': transactionRef,
+            'method': paymentMethod,
+          },
+        });
+      } catch (_) {}
+    }
+
+    _simulatedAuditLogs.insert(
+      0,
+      AdminAuditLogItem(
+        id: 'log-${DateTime.now().millisecondsSinceEpoch}',
+        adminName: adminName,
+        action: 'SELLER_PAYOUT_DISBURSED',
+        entity: 'order_settlement',
+        entityId: orderId,
+        details: 'Disbursed ₹${amount.toStringAsFixed(2)} revenue for order #$orderId to $shopName via $paymentMethod (Ref: $transactionRef)',
+        timestamp: now,
+      ),
+    );
+
+    return true;
+  }
+
+  Future<bool> disburseDeliverySalary({
+    required String driverId,
+    required String driverName,
+    required String monthName,
+    required double amount,
+    required String paymentMethod,
+    required String transactionRef,
+    String adminName = 'Super Admin',
+  }) async {
+    await _loadPersistedStatus();
+    final now = DateTime.now();
+    final salaryKey = '${driverId}_$monthName';
+    _locallyPaidDriverSalaries[salaryKey] = {
+      'status': 'paid',
+      'amount': amount,
+      'ref': transactionRef,
+      'method': paymentMethod,
+      'paidAt': now.toIso8601String(),
+      'driverName': driverName,
+      'month': monthName,
+    };
+    await _persistStatus();
+
+    if (_client != null) {
+      try {
+        await _client.from('admin_audit_logs').insert({
+          'admin_name': adminName,
+          'action': 'DELIVERY_SALARY_DISBURSED',
+          'entity': 'delivery_salary',
+          'entity_id': driverId,
+          'details': 'Disbursed monthly salary ₹${amount.toStringAsFixed(2)} for $monthName to $driverName via $paymentMethod (Ref: $transactionRef)',
+          'new_value': {
+            'driver_id': driverId,
+            'driver_name': driverName,
+            'month': monthName,
+            'amount': amount,
+            'status': 'paid',
+            'ref': transactionRef,
+            'method': paymentMethod,
+          },
+        });
+      } catch (_) {}
+    }
+
+    _simulatedAuditLogs.insert(
+      0,
+      AdminAuditLogItem(
+        id: 'log-${DateTime.now().millisecondsSinceEpoch}',
+        adminName: adminName,
+        action: 'DELIVERY_SALARY_DISBURSED',
+        entity: 'delivery_salary',
+        entityId: driverId,
+        details: 'Disbursed monthly salary ₹${amount.toStringAsFixed(2)} for $monthName to $driverName via $paymentMethod (Ref: $transactionRef)',
+        timestamp: now,
+      ),
+    );
+
+    return true;
   }
 }

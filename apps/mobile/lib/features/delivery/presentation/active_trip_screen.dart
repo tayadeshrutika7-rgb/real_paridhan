@@ -284,6 +284,313 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
     );
   }
 
+  void _showRejectionSheet(DeliveryTaskModel trip) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        String selectedReasonType = 'emergency'; // or 'customer_unavailable'
+        final notesController = TextEditingController();
+        bool isSubmittingRejection = false;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 28,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(Icons.report_problem_outlined, color: Colors.red.shade700, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Report / Reject Delivery',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                'Select reason for cancellation or delivery exception',
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Choice 1: Personal Emergency / Vehicle Breakdown
+                    InkWell(
+                      onTap: () => setSheetState(() => selectedReasonType = 'emergency'),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: selectedReasonType == 'emergency' ? Colors.red.shade50 : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selectedReasonType == 'emergency' ? Colors.red.shade400 : Colors.grey.shade300,
+                            width: selectedReasonType == 'emergency' ? 1.8 : 1.0,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.emergency_outlined, color: Colors.red.shade700, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Personal Emergency / Breakdown',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade100,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    '₹100 CHARGE',
+                                    style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Personal illness, vehicle puncture/breakdown, or family emergency.',
+                              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.info_outline, size: 14, color: Colors.red.shade700),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'A ₹100 fee will be charged to your driver account and shown on your Earnings Dashboard.',
+                                      style: TextStyle(fontSize: 11, color: Colors.red.shade800, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Choice 2: Customer Not Available / Unreachable
+                    InkWell(
+                      onTap: () => setSheetState(() => selectedReasonType = 'customer_unavailable'),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: selectedReasonType == 'customer_unavailable' ? Colors.blue.shade50 : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selectedReasonType == 'customer_unavailable' ? Colors.blue.shade400 : Colors.grey.shade300,
+                            width: selectedReasonType == 'customer_unavailable' ? 1.8 : 1.0,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.person_off_outlined, color: Colors.blue.shade700, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Customer Not Available at Time',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade100,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    '₹0 PENALTY',
+                                    style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Door locked, customer unreachable after multiple calls, or requested reschedule.',
+                              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.check_circle_outline, size: 14, color: Colors.blue.shade700),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Request will be shown on Seller & Admin dashboards for pending delivery review. Seller can cancel.',
+                                      style: TextStyle(fontSize: 11, color: Colors.blue.shade900, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: notesController,
+                      decoration: InputDecoration(
+                        labelText: selectedReasonType == 'emergency'
+                            ? 'Emergency Reason (Optional)'
+                            : 'Customer Availability Details (e.g. Door locked, unreachable)',
+                        hintText: selectedReasonType == 'emergency'
+                            ? 'Vehicle breakdown / tire puncture'
+                            : 'Called 3 times, customer not picking up',
+                        filled: true,
+                        fillColor: AppTheme.surfaceColor,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                      maxLines: 2,
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: isSubmittingRejection
+                            ? null
+                            : () async {
+                                setSheetState(() => isSubmittingRejection = true);
+                                if (selectedReasonType == 'emergency') {
+                                  final reason = notesController.text.trim().isNotEmpty
+                                      ? notesController.text.trim()
+                                      : 'Personal Emergency / Vehicle Breakdown';
+                                  final ok = await ref.read(deliveryProvider.notifier).rejectDeliveryEmergency(
+                                        taskId: trip.id,
+                                        orderId: trip.orderId,
+                                        orderNumber: trip.orderNumber,
+                                        reason: reason,
+                                      );
+                                  if (mounted && ctx.mounted) {
+                                    Navigator.pop(ctx);
+                                  }
+                                  if (ok && mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Delivery cancelled. ₹100 emergency cancellation fee charged.'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                    context.go('/delivery/earnings');
+                                  }
+                                } else {
+                                  final notes = notesController.text.trim().isNotEmpty
+                                      ? notesController.text.trim()
+                                      : 'Customer not available at location';
+                                  final ok = await ref.read(deliveryProvider.notifier).reportCustomerUnavailable(
+                                        taskId: trip.id,
+                                        orderId: trip.orderId,
+                                        orderNumber: trip.orderNumber,
+                                        notes: notes,
+                                      );
+                                  if (mounted && ctx.mounted) {
+                                    Navigator.pop(ctx);
+                                  }
+                                  if (ok && mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Customer marked unavailable. Request sent to Seller & Admin side.'),
+                                        backgroundColor: Colors.blue,
+                                      ),
+                                    );
+                                    context.go('/');
+                                  }
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: selectedReasonType == 'emergency' ? Colors.red.shade700 : const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: Text(
+                          selectedReasonType == 'emergency'
+                              ? 'Confirm Cancellation (-₹100 Charge)'
+                              : 'Submit Customer Unavailable Report',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final deliveryState = ref.watch(deliveryProvider);
@@ -316,6 +623,11 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
       appBar: AppBar(
         title: Text(trip.orderNumber),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.report_problem_outlined, color: Colors.red),
+            tooltip: 'Reject / Report Issue',
+            onPressed: () => _showRejectionSheet(trip),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -708,6 +1020,56 @@ class _ActiveTripScreenState extends ConsumerState<ActiveTripScreen> {
                     ],
                   ],
                 ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Section 4: Emergency / Exception Actions
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.report_problem_outlined, color: Colors.red.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Delivery Trouble or Emergency?',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red.shade800, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'If you face a personal breakdown (₹100 charge) or customer is unavailable (0 penalty), report it immediately.',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showRejectionSheet(trip),
+                      icon: Icon(Icons.cancel_outlined, color: Colors.red.shade700, size: 18),
+                      label: Text(
+                        'Report Issue / Reject Delivery',
+                        style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.red.shade400),
+                        backgroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 

@@ -79,6 +79,37 @@ class AuthNotifier extends Notifier<AuthState> {
       if (response != null) {
         final profile = UserProfile.fromJson(response);
         state = state.copyWith(user: profile, isGuest: false, clearError: true);
+      } else {
+        // Self-heal: auth.users record exists but public.profiles row is missing
+        final authUser = client.auth.currentUser;
+        if (authUser != null && authUser.id == userId) {
+          final meta = authUser.userMetadata ?? {};
+          final roleStr = (meta['role'] as String?)?.toLowerCase() ?? 'consumer';
+          final parsedRole = UserRole.values.firstWhere(
+            (r) => r.name.toLowerCase() == roleStr,
+            orElse: () => UserRole.consumer,
+          );
+          final fullName = meta['full_name'] as String? ?? (authUser.email?.split('@').first ?? 'User');
+          final phone = meta['phone'] as String?;
+          final profileMap = <String, dynamic>{
+            'id': userId,
+            'role': parsedRole.name,
+            'full_name': fullName,
+            'email': authUser.email?.toLowerCase().trim(),
+            if (phone != null) 'phone': phone,
+            'accepted_terms_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          };
+          try {
+            final inserted = await client.from('profiles').upsert(profileMap).select().maybeSingle();
+            if (inserted != null) {
+              final profile = UserProfile.fromJson(inserted);
+              state = state.copyWith(user: profile, isGuest: false, clearError: true);
+            }
+          } catch (insertErr) {
+            debugPrint('[AuthNotifier] Failed to self-heal profile: $insertErr');
+          }
+        }
       }
     } catch (e) {
       debugPrint('[AuthNotifier] Error loading profile: $e');
@@ -94,6 +125,7 @@ class AuthNotifier extends Notifier<AuthState> {
     required String password,
   }) async {
     state = state.copyWith(isLoading: true, clearError: true);
+    final normalizedEmail = email.trim().toLowerCase();
     final client = SupabaseService.client;
 
     if (client == null) {
@@ -103,7 +135,7 @@ class AuthNotifier extends Notifier<AuthState> {
       String name = 'Aarav Sharma';
       String phone = '+91 98290 12345';
 
-      final normalized = email.toLowerCase().trim();
+      final normalized = normalizedEmail;
       if (normalized.contains('seller')) {
         role = UserRole.seller;
         name = 'Jaipur Heritage Handlooms';
@@ -122,7 +154,7 @@ class AuthNotifier extends Notifier<AuthState> {
         id: 'user-${role.name}-01',
         role: role,
         fullName: name,
-        email: email,
+        email: normalizedEmail,
         phone: phone,
         acceptedTermsAt: DateTime.now(),
       );
@@ -132,7 +164,7 @@ class AuthNotifier extends Notifier<AuthState> {
 
     try {
       final res = await client.auth.signInWithPassword(
-        email: email,
+        email: normalizedEmail,
         password: password,
       );
       if (res.user != null) {
@@ -172,6 +204,8 @@ class AuthNotifier extends Notifier<AuthState> {
     required bool acceptedTerms,
   }) async {
     state = state.copyWith(isLoading: true, clearError: true);
+    final normalizedEmail = email.trim().toLowerCase();
+    final cleanFullName = fullName.trim();
     final client = SupabaseService.client;
 
     if (client == null) {
@@ -179,8 +213,8 @@ class AuthNotifier extends Notifier<AuthState> {
       final mockUser = UserProfile(
         id: 'user-${role.name}-${DateTime.now().millisecondsSinceEpoch}',
         role: role,
-        fullName: fullName,
-        email: email,
+        fullName: cleanFullName,
+        email: normalizedEmail,
         acceptedTermsAt: acceptedTerms ? DateTime.now() : null,
       );
       state = AuthState(isLoading: false, isGuest: false, user: mockUser);
@@ -189,15 +223,24 @@ class AuthNotifier extends Notifier<AuthState> {
 
     try {
       final res = await client.auth.signUp(
-        email: email,
+        email: normalizedEmail,
         password: password,
         data: {
-          'full_name': fullName,
+          'full_name': cleanFullName,
           'role': role.name,
           'accepted_terms': acceptedTerms,
         },
       );
       if (res.user != null) {
+        // Obfuscated duplicate signup check: Supabase returns user with empty identities when already registered
+        if (res.user!.identities != null && res.user!.identities!.isEmpty) {
+          state = state.copyWith(
+            isLoading: false,
+            errorMessage: 'An account with this email address already exists. Please Sign In.',
+          );
+          return false;
+        }
+
         if (res.session != null) {
           await _loadProfile(res.user!.id);
           state = state.copyWith(isLoading: false);
@@ -223,24 +266,31 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   String _formatAuthError(dynamic e) {
-    final str = e.toString();
-    if (str.contains('Unable to validate email address') || str.contains('invalid format')) {
+    final str = e.toString().toLowerCase();
+    if (str.contains('profiles_phone_key') || (str.contains('phone') && (str.contains('unique') || str.contains('duplicate')))) {
+      return 'A user with this phone number already exists.';
+    }
+    if (str.contains('unable to validate email') || str.contains('invalid format') || str.contains('invalid email')) {
       return 'Invalid email address format. Please enter a complete email address including domain (e.g., seller@example.com).';
     }
-    if (str.contains('Error sending confirmation email') || str.contains('unexpected_failure')) {
+    if (str.contains('error sending confirmation email') || str.contains('unexpected_failure')) {
       return 'Supabase cannot send confirmation emails (rate limit or unconfigured SMTP).\nFix: In Supabase Dashboard ➔ Authentication ➔ Providers ➔ Email ➔ Turn OFF "Confirm email".';
     }
-    if (str.contains('Invalid login credentials') || str.contains('invalid_credentials')) {
+    if (str.contains('invalid login credentials') || str.contains('invalid_credentials')) {
       return 'Invalid email or password. Please check your credentials and try again.';
     }
-    if (str.contains('User already registered') || str.contains('user_already_exists')) {
+    if (str.contains('user already registered') || str.contains('user_already_exists') || str.contains('email_exists') || str.contains('already been registered') || str.contains('already registered')) {
       return 'An account with this email address already exists. Please Sign In.';
     }
-    return e is AuthException ? e.message : str;
+    if (str.contains('network') || str.contains('socketexception') || str.contains('connection')) {
+      return 'Network connection error. Please check your internet connection and try again.';
+    }
+    return e is AuthException ? e.message : e.toString();
   }
 
   Future<bool> sendPasswordResetEmail(String email) async {
     state = state.copyWith(isLoading: true, clearError: true);
+    final normalizedEmail = email.trim().toLowerCase();
     final client = SupabaseService.client;
 
     if (client == null) {
@@ -250,11 +300,11 @@ class AuthNotifier extends Notifier<AuthState> {
     }
 
     try {
-      await client.auth.resetPasswordForEmail(email);
+      await client.auth.resetPasswordForEmail(normalizedEmail);
       state = state.copyWith(isLoading: false);
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      state = state.copyWith(isLoading: false, errorMessage: _formatAuthError(e));
       return false;
     }
   }

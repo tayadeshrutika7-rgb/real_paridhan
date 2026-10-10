@@ -222,8 +222,8 @@ class OrderRepository {
     required double totalAmount,
   }) async {
     final client = SupabaseService.client;
-    final randomOtp = (1000 + Random().nextInt(9000)).toString();
-    final randomSuffix = (1000 + Random().nextInt(9000)).toString();
+    final randomOtp = (1000 + Random.secure().nextInt(9000)).toString();
+    final randomSuffix = (1000 + Random.secure().nextInt(9000)).toString();
     final orderNum = 'PRD-${DateTime.now().year}-$randomSuffix';
 
     final orderItems = cartItems
@@ -271,6 +271,10 @@ class OrderRepository {
     }
 
     try {
+      // Calculate commission (3% standard platform charge) and seller net payout (97%)
+      final commissionAmount = double.parse((subtotal * 0.03).toStringAsFixed(2));
+      final sellerPayoutAmount = double.parse((subtotal - commissionAmount).toStringAsFixed(2));
+
       // 1. Insert order
       final orderRes = await client.from('orders').insert({
         'order_number': orderNum,
@@ -282,7 +286,10 @@ class OrderRepository {
         'subtotal': subtotal,
         'delivery_fee': deliveryFee,
         'platform_fee': platformFee,
+        'total': totalAmount,
         'total_amount': totalAmount,
+        'commission_amount': commissionAmount,
+        'seller_payout_amount': sellerPayoutAmount,
         'delivery_address': address.toJson(),
         'delivery_otp': randomOtp,
       }).select().single();
@@ -420,6 +427,39 @@ class OrderRepository {
       return true;
     } catch (e) {
       debugPrint('[OrderRepository] Error updating order status: $e');
+      return false;
+    }
+  }
+
+  Future<bool> cancelOrderDueToCustomerUnavailable(String orderId) async {
+    final client = SupabaseService.client;
+    final now = DateTime.now().toIso8601String();
+    if (client == null) {
+      final idx = _mockOrders.indexWhere((o) => o.id == orderId);
+      if (idx >= 0) {
+        _mockOrders[idx] = _mockOrders[idx].copyWith(
+          status: OrderStatus.cancelled,
+          customerUnavailable: true,
+          deliveryIssue: 'customer_not_available',
+          deliveryIssueNotes: 'Cancelled by seller due to customer unavailability',
+        );
+      }
+      return true;
+    }
+
+    try {
+      await client
+          .from('orders')
+          .update({
+            'status': 'cancelled',
+            'cancel_reason': 'Cancelled by seller: Customer not available at delivery',
+            'customer_unavailable': true,
+            'updated_at': now,
+          })
+          .eq('id', orderId);
+      return true;
+    } catch (e) {
+      debugPrint('[OrderRepository] Error cancelling order due to customer unavailability: $e');
       return false;
     }
   }

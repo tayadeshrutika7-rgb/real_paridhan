@@ -44,13 +44,31 @@ class DeliveryEarningsScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Today\'s Net Payout',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Today\'s Net Payout',
+                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                      ),
+                      if (earnings.todayPenalties > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade400.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Text(
+                            '-₹${earnings.todayPenalties.toStringAsFixed(0)} Penalty',
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '₹${earnings.todayTotalEarnings.toStringAsFixed(2)}',
+                    '₹${earnings.todayNetEarnings.toStringAsFixed(2)}',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 32,
@@ -68,13 +86,18 @@ class DeliveryEarningsScreen extends ConsumerWidget {
                         value: '₹${earnings.todayBaseEarnings.toStringAsFixed(0)}',
                       ),
                       _EarningsMiniStat(
-                        label: 'Distance Bonus',
+                        label: 'Bonus',
                         value: '₹${earnings.todayDistanceIncentive.toStringAsFixed(0)}',
                       ),
                       _EarningsMiniStat(
                         label: 'Tips',
                         value: '₹${earnings.todayTips.toStringAsFixed(0)}',
                       ),
+                      if (earnings.todayPenalties > 0)
+                        _EarningsMiniStat(
+                          label: 'Penalties',
+                          value: '-₹${earnings.todayPenalties.toStringAsFixed(0)}',
+                        ),
                     ],
                   ),
                 ],
@@ -146,6 +169,81 @@ class DeliveryEarningsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+
+            if (earnings.todayPenalties > 0) ...[
+              const SizedBox(height: 16),
+              Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.red.shade300, width: 1.2),
+                ),
+                color: Colors.red.shade50.withValues(alpha: 0.5),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 22),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Platform Penalties Charged',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '-₹${earnings.todayPenalties.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.red.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Charged for ${earnings.penaltiesCount} emergency cancellation(s) at ₹100 per rejected trip.',
+                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                      ...earnings.penalties.map((pen) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      pen.orderNumber,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                    Text(
+                                      '${pen.reason} • ${timeFormat.format(pen.chargedAt)}',
+                                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  '-₹${pen.amount.toStringAsFixed(0)}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red.shade700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 20),
 

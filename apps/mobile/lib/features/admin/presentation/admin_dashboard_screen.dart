@@ -27,6 +27,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
   String _selectedOrderStatusFilter = 'All';
   String _selectedSellerStatusFilter = 'All';
   String _selectedKycCategory = 'Boutiques';
+  int _financeSubSection = 0; // 0: All, 1: Shop Paybacks, 2: Order Payouts, 3: Delivery Salaries
+  String _financeOrderFilter = 'All'; // 'All', 'Pending', 'Paid'
 
   @override
   void initState() {
@@ -728,8 +730,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                     SizedBox(
                       width: width,
                       child: _buildSparklineCard(
-                        title: 'Commission (10%)',
-                        value: '₹${(metrics.totalGmv * 0.1).toStringAsFixed(0)}',
+                        title: 'Commission (3%)',
+                        value: '₹${metrics.totalCommissionEarned.toStringAsFixed(0)}',
                         trend: '↑ 8%',
                         icon: Icons.percent,
                         iconColor: const Color(0xFF7C3AED),
@@ -1135,7 +1137,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
             height: 220,
             width: double.infinity,
             child: CustomPaint(
-              painter: _ComboTrendChartPainter(),
+              painter: _ComboTrendChartPainter(
+                ordersTrends: metrics.ordersTrends,
+                revenueTrends: metrics.revenueTrends,
+              ),
             ),
           ),
         ],
@@ -1340,7 +1345,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                         ),
                       ),
                     ),
-                    const Expanded(flex: 2, child: Text('Sep 30, 2026', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        '${o.createdAt.day.toString().padLeft(2, '0')}/${o.createdAt.month.toString().padLeft(2, '0')}/${o.createdAt.year}',
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -1419,7 +1430,9 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
           ...topSellers.asMap().entries.map((entry) {
             final idx = entry.key;
             final seller = entry.value;
-            final pct = (1.0 - (idx * 0.18)).clamp(0.2, 1.0);
+            final pct = metrics.totalGmv > 0
+                ? (seller.totalSales / metrics.totalGmv).clamp(0.0, 1.0)
+                : 0.0;
 
             return Container(
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
@@ -2099,7 +2112,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
                     _buildStatPill('Catalog Products', '${seller.totalProducts}'),
                     _buildStatPill('Total Orders', '${seller.totalOrders}'),
                     _buildStatPill('Gross Sales', '₹${seller.totalSales.toStringAsFixed(0)}'),
-                    _buildStatPill('10% Comm', '₹${seller.commissionGenerated.toStringAsFixed(0)}'),
+                    _buildStatPill('3% Comm', '₹${seller.commissionGenerated.toStringAsFixed(0)}'),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -2310,7 +2323,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
   }
 
   // ==========================================
-  // TAB 8: FINANCIALS & P&L
+  // TAB 8: FINANCIALS, SHOP PAYBACKS & SALARIES
   // ==========================================
   Widget _buildFinancialsTab(BuildContext context, AdminMetricsModel metrics) {
     return SingleChildScrollView(
@@ -2318,57 +2331,1018 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF1E293B), Color(0xFF0F172A)]),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // Sub-Section Navigation Filter Chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
-                const Text('Platform Net Revenue Summary', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 6),
-                Text('₹${metrics.netPlatformEarnings.toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                const Divider(color: Colors.white24),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildWhiteStat('Platform Comm', '₹${metrics.totalCommissionEarned.toStringAsFixed(0)}'),
-                    _buildWhiteStat('Ad Revenue', '₹${metrics.totalAdRevenue.toStringAsFixed(0)}'),
-                    _buildWhiteStat('Seller Payouts', '₹${metrics.sellerEarnings.toStringAsFixed(0)}'),
-                  ],
-                ),
+                _buildFinanceSubChip(0, 'Complete Financial Overview', Icons.dashboard),
+                const SizedBox(width: 8),
+                _buildFinanceSubChip(1, 'Shop Paybacks (Per Shop)', Icons.store),
+                const SizedBox(width: 8),
+                _buildFinanceSubChip(2, 'Order-Level Payouts', Icons.receipt_long),
+                const SizedBox(width: 8),
+                _buildFinanceSubChip(3, 'Delivery Fleet Salaries', Icons.two_wheeler),
               ],
             ),
           ),
+          const SizedBox(height: 16),
 
-          const SizedBox(height: 20),
-          Text('Itemized Platform Earnings Ledger', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 10),
-
-          Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            child: Padding(
+          // 1. Platform Summary & Ledger (Shown on All or Overview)
+          if (_financeSubSection == 0 || _financeSubSection == 1) ...[
+            Container(
               padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF1E293B), Color(0xFF0F172A)]),
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildFinancialRow('Gross Merchandise Value (GMV)', '₹${metrics.totalGmv.toStringAsFixed(2)}', isBold: true),
-                  _buildFinancialRow('10% Platform Commission', '+₹${metrics.totalCommissionEarned.toStringAsFixed(2)}', color: AppTheme.successColor),
-                  _buildFinancialRow('Advertisements & Promos', '+₹${metrics.totalAdRevenue.toStringAsFixed(2)}', color: AppTheme.successColor),
-                  _buildFinancialRow('Delivery Platform Fee Share', '+₹${(metrics.totalDeliveryCharges * 0.20).toStringAsFixed(2)}', color: AppTheme.successColor),
-                  _buildFinancialRow('Payment Gateway Costs (2%)', '-₹${metrics.gatewayCharges.toStringAsFixed(2)}', color: AppTheme.errorColor),
-                  _buildFinancialRow('Refund Commission Reversals (10%)', '-₹${(metrics.totalRefundsAmount * (metrics.platformCommissionRate / 100)).toStringAsFixed(2)}', color: AppTheme.errorColor),
-                  const Divider(height: 20),
-                  _buildFinancialRow('Net Platform Revenue / Earnings', '₹${metrics.netPlatformEarnings.toStringAsFixed(2)}', isBold: true, color: AppTheme.primaryColor),
+                  const Text('Platform Net Revenue Summary', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  Text('₹${metrics.netPlatformEarnings.toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  const Divider(color: Colors.white24),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildWhiteStat('Platform Comm (3%)', '₹${metrics.totalCommissionEarned.toStringAsFixed(0)}'),
+                      _buildWhiteStat('Ad Revenue', '₹${metrics.totalAdRevenue.toStringAsFixed(0)}'),
+                      _buildWhiteStat('Seller Payback (97%)', '₹${metrics.sellerEarnings.toStringAsFixed(0)}'),
+                    ],
+                  ),
                 ],
               ),
+            ),
+            const SizedBox(height: 20),
+
+            Text('Itemized Platform Earnings Ledger', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 10),
+
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    _buildFinancialRow('Gross Merchandise Value (GMV)', '₹${metrics.totalGmv.toStringAsFixed(2)}', isBold: true),
+                    _buildFinancialRow('3% Platform Commission', '+₹${metrics.totalCommissionEarned.toStringAsFixed(2)}', color: AppTheme.successColor),
+                    _buildFinancialRow('Advertisements & Promos', '+₹${metrics.totalAdRevenue.toStringAsFixed(2)}', color: AppTheme.successColor),
+                    _buildFinancialRow('Delivery Platform Fee Share', '+₹${(metrics.totalDeliveryCharges * 0.20).toStringAsFixed(2)}', color: AppTheme.successColor),
+                    _buildFinancialRow('Payment Gateway Costs (2%)', '-₹${metrics.gatewayCharges.toStringAsFixed(2)}', color: AppTheme.errorColor),
+                    _buildFinancialRow('Refund Commission Reversals (3%)', '-₹${(metrics.totalRefundsAmount * (metrics.platformCommissionRate / 100)).toStringAsFixed(2)}', color: AppTheme.errorColor),
+                    const Divider(height: 20),
+                    _buildFinancialRow('Net Platform Revenue / Earnings', '₹${metrics.netPlatformEarnings.toStringAsFixed(2)}', isBold: true, color: AppTheme.primaryColor),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
+          // 2. Shop-wise Commission & Seller Payback (Per Shop)
+          if (_financeSubSection == 0 || _financeSubSection == 1) ...[
+            _buildShopPaybacksSection(context, metrics),
+            const SizedBox(height: 24),
+          ],
+
+          // 3. Order-Level Seller Revenue Settlements & Disbursal
+          if (_financeSubSection == 0 || _financeSubSection == 2) ...[
+            _buildOrderLevelPayoutsSection(context, metrics),
+            const SizedBox(height: 24),
+          ],
+
+          // 4. Delivery Fleet Monthly Salary & Trip Payback
+          if (_financeSubSection == 0 || _financeSubSection == 3) ...[
+            _buildDeliveryFleetSalarySection(context, metrics),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFinanceSubChip(int index, String label, IconData icon) {
+    final isSelected = _financeSubSection == index;
+    return ChoiceChip(
+      avatar: Icon(icon, size: 16, color: isSelected ? Colors.white : AppTheme.primaryColor),
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => setState(() => _financeSubSection = index),
+      selectedColor: AppTheme.primaryColor,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : const Color(0xFF1E293B),
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+        fontSize: 12,
+      ),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: isSelected ? AppTheme.primaryColor : const Color(0xFFE2E8F0)),
+      ),
+    );
+  }
+
+  // ─── SECTION 2: SHOP-WISE COMMISSION & SELLER PAYBACK ─────────────────────
+  Widget _buildShopPaybacksSection(BuildContext context, AdminMetricsModel metrics) {
+    final settlements = metrics.shopSettlements;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Shop-wise Commission & Seller Payback', style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 4),
+                const Text(
+                  'Separate payback for each boutique: 3% platform commission deducted, 97% net payable to seller.',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: Text(
+                '${settlements.length} Boutiques',
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        if (settlements.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('No boutique settlements found.', style: TextStyle(color: AppTheme.textSecondary))),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: settlements.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (ctx, i) {
+              final item = settlements[i];
+              final isSettled = item.settlementStatus.toLowerCase() == 'settled';
+              final isPartial = item.settlementStatus.toLowerCase() == 'partial';
+
+              return Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(Icons.storefront, color: AppTheme.primaryColor, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(item.shopName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                  const SizedBox(height: 2),
+                                  Text('Owner: ${item.ownerName} • Bank: ${item.bankName}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                  Text('A/C: ${item.bankAccountNumber} • IFSC: ${item.bankIfsc}', style: const TextStyle(fontSize: 10, color: AppTheme.textMuted)),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isSettled ? const Color(0xFFDCFCE7) : (isPartial ? const Color(0xFFFEF3C7) : const Color(0xFFFFE4E6)),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              item.settlementStatus.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: isSettled ? const Color(0xFF166534) : (isPartial ? const Color(0xFFB45309) : const Color(0xFF9F1239)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      const Divider(height: 1),
+                      const SizedBox(height: 12),
+
+                      // Metrics Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildStatPill('Eligible Orders', '${item.eligibleOrdersCount} orders'),
+                          _buildStatPill('Gross Sales (GMV)', '₹${item.grossSubtotal.toStringAsFixed(2)}'),
+                          _buildStatPill('3% Commission', '+₹${item.commissionAmount.toStringAsFixed(2)}'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('₹${item.netPayback.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.primaryColor)),
+                              const Text('Net Payback (97%)', style: TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('₹${item.pendingPayback.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: item.pendingPayback > 0 ? const Color(0xFFB45309) : AppTheme.successColor)),
+                              Text(item.pendingPayback > 0 ? 'Pending Payback' : 'Fully Settled', style: const TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  // ─── SECTION 3: ORDER-LEVEL SELLER PAYOUTS & AUDIT LOG ───────────────────
+  Widget _buildOrderLevelPayoutsSection(BuildContext context, AdminMetricsModel metrics) {
+    var orders = metrics.orders;
+    if (_financeOrderFilter == 'Pending') {
+      orders = orders.where((o) => o.sellerPayoutStatus != 'paid').toList();
+    } else if (_financeOrderFilter == 'Paid') {
+      orders = orders.where((o) => o.sellerPayoutStatus == 'paid').toList();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Order-Level Seller Revenue Settlements', style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 4),
+                const Text(
+                  'Pay the 97% merchandise revenue directly per order and maintain an immutable financial audit log.',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                _buildPayoutFilterButton('All'),
+                const SizedBox(width: 6),
+                _buildPayoutFilterButton('Pending'),
+                const SizedBox(width: 6),
+                _buildPayoutFilterButton('Paid'),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        if (orders.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('No orders match the selected payout filter.', style: TextStyle(color: AppTheme.textSecondary))),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: orders.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
+            itemBuilder: (ctx, i) {
+              final o = orders[i];
+              final isPaid = o.sellerPayoutStatus == 'paid';
+
+              return Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Order Icon & ID
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          isPaid ? Icons.check_circle : Icons.pending_actions,
+                          color: isPaid ? const Color(0xFF166534) : const Color(0xFFB45309),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Order Details
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text('#${o.id}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                const SizedBox(width: 8),
+                                Text('• ${o.shopName}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: AppTheme.primaryColor)),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text('Customer: ${o.consumerName} • Items: ${o.productTitles}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            if (isPaid && o.sellerPayoutRef != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text('Paid via ${o.sellerPaymentMethod ?? 'Razorpay Route'} (UTR: ${o.sellerPayoutRef})', style: const TextStyle(fontSize: 10, color: Color(0xFF166534), fontWeight: FontWeight.bold)),
+                              ),
+                          ],
+                        ),
+                      ),
+
+                      // Financial Numbers
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('Subtotal: ₹${o.subtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                            Text('3% Comm: -₹${o.commissionAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                            const SizedBox(height: 2),
+                            Text('Net Payable: ₹${o.sellerPayout.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primaryColor)),
+                          ],
+                        ),
+                      ),
+
+                      // Action / Status Badge
+                      if (isPaid)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text('PAID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF166534))),
+                        )
+                      else
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.payment, size: 14),
+                          label: const Text('Pay Seller', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => _showPaySellerDialog(context, o),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPayoutFilterButton(String label) {
+    final isSelected = _financeOrderFilter == label;
+    return InkWell(
+      onTap: () => setState(() => _financeOrderFilter = label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isSelected ? AppTheme.primaryColor : const Color(0xFFCBD5E1)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? Colors.white : const Color(0xFF475569),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── SECTION 4: DELIVERY FLEET MONTHLY SALARY & PER-ORDER PAYBACK ────────
+  Widget _buildDeliveryFleetSalarySection(BuildContext context, AdminMetricsModel metrics) {
+    final fleetSalaries = metrics.deliverySalaries;
+
+    final totalTrips = fleetSalaries.fold<int>(0, (acc, s) => acc + s.completedOrdersCount);
+    final totalTripEarnings = fleetSalaries.fold<double>(0.0, (acc, s) => acc + s.perOrderEarningsTotal);
+    final totalSalaries = fleetSalaries.fold<double>(0.0, (acc, s) => acc + s.totalCalculatedSalary);
+    final totalPendingSalaries = fleetSalaries.fold<double>(0.0, (acc, s) => acc + s.pendingSalary);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Delivery Fleet Monthly Salary & Trip Payback', style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 4),
+                const Text(
+                  'Per-order trip records (how much received per delivery), aggregated as monthly salary and automatically calculated.',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.calendar_month, size: 14, color: AppTheme.primaryColor),
+                  SizedBox(width: 6),
+                  Text('October 2026 (Active Period)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Fleet Salary Aggregation Banner Cards
+        Row(
+          children: [
+            Expanded(child: _buildSalaryKpiCard('Total Completed Trips', '$totalTrips trips', Icons.local_shipping, const Color(0xFF2563EB))),
+            const SizedBox(width: 8),
+            Expanded(child: _buildSalaryKpiCard('Per-Order Trip Earnings', '₹${totalTripEarnings.toStringAsFixed(0)}', Icons.payments, const Color(0xFF16A34A))),
+            const SizedBox(width: 8),
+            Expanded(child: _buildSalaryKpiCard('Total Monthly Salaries', '₹${totalSalaries.toStringAsFixed(0)}', Icons.account_balance_wallet, AppTheme.primaryColor)),
+            const SizedBox(width: 8),
+            Expanded(child: _buildSalaryKpiCard('Pending Disbursals', '₹${totalPendingSalaries.toStringAsFixed(0)}', Icons.hourglass_top, const Color(0xFFD97706))),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        if (fleetSalaries.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('No delivery partners registered in fleet.', style: TextStyle(color: AppTheme.textSecondary))),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: fleetSalaries.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (ctx, i) {
+              final s = fleetSalaries[i];
+              final isPaid = s.salaryStatus.toLowerCase() == 'paid';
+
+              return Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: const Color(0xFFFEF3C7),
+                            child: const Icon(Icons.two_wheeler, color: Color(0xFFD97706)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(s.driverName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(4)),
+                                      child: Text(s.vehicleNumber, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text('Phone: ${s.phone} • UPI: ${s.upiId} • Vehicle: ${s.vehicleType}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                if (isPaid && s.paymentReference != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text('Salary Disbursed (UTR: ${s.paymentReference})', style: const TextStyle(fontSize: 10, color: Color(0xFF166534), fontWeight: FontWeight.bold)),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              isPaid ? 'SALARY PAID' : 'PENDING DISBURSAL',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isPaid ? const Color(0xFF166534) : const Color(0xFFB45309)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 12),
+
+                      // Salary Breakdown Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildStatPill('Completed Trips', '${s.completedOrdersCount} trips'),
+                          _buildStatPill('Per-Order Earnings (₹70)', '₹${s.perOrderEarningsTotal.toStringAsFixed(2)}'),
+                          _buildStatPill('Monthly Incentive', '+₹${s.monthlyIncentiveBonus.toStringAsFixed(2)}'),
+                          _buildStatPill('Penalties', '-₹${s.penaltyDeductions.toStringAsFixed(2)}'),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('₹${s.totalCalculatedSalary.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.primaryColor)),
+                              const Text('Calculated Monthly Salary', style: TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('₹${s.pendingSalary.toStringAsFixed(2)}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: s.pendingSalary > 0 ? const Color(0xFFB45309) : AppTheme.successColor)),
+                              Text(s.pendingSalary > 0 ? 'Pending Salary' : 'Disbursed', style: const TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Action Buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.list_alt, size: 14),
+                            label: const Text('View Per-Order Trips', style: TextStyle(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF475569),
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            ),
+                            onPressed: () => _showDriverTripsModal(context, s),
+                          ),
+                          const SizedBox(width: 8),
+                          if (!isPaid)
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.attach_money, size: 14),
+                              label: Text('Disburse Salary (₹${s.pendingSalary.toStringAsFixed(0)})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF16A34A),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: () => _showDisburseSalaryDialog(context, s),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSalaryKpiCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(label, style: const TextStyle(fontSize: 9, color: AppTheme.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  // ─── DIALOG 1: PAY SELLER PER ORDER ───────────────────────────────────────
+  void _showPaySellerDialog(BuildContext context, AdminOrderItem order) {
+    final refController = TextEditingController(text: 'UTR-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}');
+    String selectedMethod = 'Razorpay Route (Sub-account Transfer)';
+    final notesController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.account_balance, color: AppTheme.primaryColor),
+                  const SizedBox(width: 8),
+                  const Text('Disburse Seller Revenue', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Order: #${order.id}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          Text('Boutique: ${order.shopName}', style: const TextStyle(fontSize: 12, color: AppTheme.primaryColor, fontWeight: FontWeight.w600)),
+                          const Divider(height: 16),
+                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                            const Text('Merchandise Subtotal:', style: TextStyle(fontSize: 12)),
+                            Text('₹${order.subtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          ]),
+                          const SizedBox(height: 4),
+                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                            const Text('Platform Commission (3%):', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                            Text('-₹${order.commissionAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, color: Color(0xFF991B1B))),
+                          ]),
+                          const Divider(height: 16),
+                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                            const Text('Net Seller Payback (97%):', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                            Text('₹${order.sellerPayout.toStringAsFixed(2)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                          ]),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    const Text('Payment Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedMethod,
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Razorpay Route (Sub-account Transfer)', child: Text('Razorpay Route Transfer', style: TextStyle(fontSize: 12))),
+                        DropdownMenuItem(value: 'Bank Transfer (NEFT/RTGS)', child: Text('Bank Transfer (NEFT/RTGS)', style: TextStyle(fontSize: 12))),
+                        DropdownMenuItem(value: 'Instant UPI Payout', child: Text('Instant UPI Payout', style: TextStyle(fontSize: 12))),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => selectedMethod = val);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    const Text('Transaction Reference / UTR Number', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: refController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter bank UTR or gateway transfer ID',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(dialogCtx);
+                    final refId = refController.text.trim().isEmpty ? 'UTR-${DateTime.now().millisecondsSinceEpoch}' : refController.text.trim();
+                    final ok = await ref.read(adminProvider.notifier).paySellerForOrder(
+                      orderId: order.id,
+                      shopName: order.shopName,
+                      amount: order.sellerPayout,
+                      paymentMethod: selectedMethod,
+                      transactionRef: refId,
+                    );
+                    if (ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('✅ Disbursed ₹${order.sellerPayout.toStringAsFixed(2)} to ${order.shopName} (Ref: $refId). Audit log recorded.'),
+                          backgroundColor: const Color(0xFF166534),
+                        ),
+                      );
+                    }
+                  },
+                  child: Text('Confirm Disbursal (₹${order.sellerPayout.toStringAsFixed(2)})'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ─── DIALOG 2: DISBURSE DELIVERY MONTHLY SALARY ───────────────────────────
+  void _showDisburseSalaryDialog(BuildContext context, DeliveryMonthlySalarySummary salary) {
+    final refController = TextEditingController(text: 'SAL-UTR-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}');
+    String selectedMethod = 'Instant UPI Transfer';
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.payments, color: Color(0xFF16A34A)),
+                  const SizedBox(width: 8),
+                  const Text('Disburse Delivery Salary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Partner: ${salary.driverName} (${salary.vehicleNumber})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          Text('Pay Period: ${salary.monthName} • UPI: ${salary.upiId}', style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                          const Divider(height: 16),
+                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                            Text('Trip Earnings (${salary.completedOrdersCount} trips):', style: const TextStyle(fontSize: 12)),
+                            Text('₹${salary.perOrderEarningsTotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          ]),
+                          const SizedBox(height: 4),
+                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                            const Text('Monthly Attendance Incentive:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                            Text('+₹${salary.monthlyIncentiveBonus.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, color: Color(0xFF16A34A))),
+                          ]),
+                          const Divider(height: 16),
+                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                            const Text('Total Net Salary Payable:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                            Text('₹${salary.pendingSalary.toStringAsFixed(2)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                          ]),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    const Text('Payment Mode', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedMethod,
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Instant UPI Transfer', child: Text('Instant UPI Transfer (Direct)', style: TextStyle(fontSize: 12))),
+                        DropdownMenuItem(value: 'Direct Bank NEFT/IMPS', child: Text('Direct Bank Transfer (NEFT/IMPS)', style: TextStyle(fontSize: 12))),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => selectedMethod = val);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    const Text('Payment Reference / UTR Number', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: refController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter bank UTR or UPI reference',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(dialogCtx);
+                    final refId = refController.text.trim().isEmpty ? 'SAL-UTR-${DateTime.now().millisecondsSinceEpoch}' : refController.text.trim();
+                    final ok = await ref.read(adminProvider.notifier).disburseDeliverySalary(
+                      driverId: salary.driverId,
+                      driverName: salary.driverName,
+                      monthName: salary.monthName,
+                      amount: salary.pendingSalary,
+                      paymentMethod: selectedMethod,
+                      transactionRef: refId,
+                    );
+                    if (ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('✅ Disbursed monthly salary of ₹${salary.pendingSalary.toStringAsFixed(2)} to ${salary.driverName} (Ref: $refId). Audit log recorded.'),
+                          backgroundColor: const Color(0xFF166534),
+                        ),
+                      );
+                    }
+                  },
+                  child: Text('Disburse Salary (₹${salary.pendingSalary.toStringAsFixed(2)})'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ─── MODAL 3: VIEW PER-ORDER TRIPS FOR DELIVERY PARTNER ───────────────────
+  void _showDriverTripsModal(BuildContext context, DeliveryMonthlySalarySummary salary) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          expand: false,
+          builder: (_, scrollCtrl) {
+            return Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Per-Order Trip Records: ${salary.driverName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text('Month: ${salary.monthName} • Vehicle: ${salary.vehicleNumber}', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                        ],
+                      ),
+                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Recorded Trips: ${salary.tripRecords.length}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        Text('Total Trip Earnings: ₹${salary.perOrderEarningsTotal.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.primaryColor)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.separated(
+                      controller: scrollCtrl,
+                      itemCount: salary.tripRecords.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (_, idx) {
+                        final trip = salary.tripRecords[idx];
+                        final df = DateFormat('dd MMM, hh:mm a');
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(8)),
+                                child: const Icon(Icons.check, color: Color(0xFF166534), size: 16),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Order #${trip.orderNumber}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    const SizedBox(height: 2),
+                                    Text(trip.deliveryZone, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                                    Text(df.format(trip.deliveryTime), style: const TextStyle(fontSize: 10, color: AppTheme.textMuted)),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('₹${trip.tripEarning.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF16A34A))),
+                                  const Text('Trip Earning', style: TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -2678,28 +3652,66 @@ class _SparklinePainter extends CustomPainter {
 // CUSTOM PAINTER: COMBO BAR + SPLINE CHART
 // ==========================================
 class _ComboTrendChartPainter extends CustomPainter {
+  final List<AdminChartPoint> ordersTrends;
+  final List<AdminChartPoint> revenueTrends;
+
+  _ComboTrendChartPainter({
+    this.ordersTrends = const [],
+    this.revenueTrends = const [],
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
     const leftMargin = 38.0;
-    const rightMargin = 38.0;
+    const rightMargin = 42.0;
     const topMargin = 12.0;
     const bottomMargin = 30.0;
 
     final chartWidth = size.width - leftMargin - rightMargin;
     final chartHeight = size.height - topMargin - bottomMargin;
 
-    // Grid lines & Left/Right Axis Labels
+    if (ordersTrends.isEmpty && revenueTrends.isEmpty) {
+      final textPainter = TextPainter(
+        text: const TextSpan(
+          text: 'No orders recorded in current timeframe',
+          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      textPainter.paint(
+        canvas,
+        Offset(leftMargin + (chartWidth - textPainter.width) / 2, topMargin + chartHeight / 2),
+      );
+      return;
+    }
+
+    // Determine scale dynamically from real data
+    double maxOrderVal = 5.0;
+    for (final p in ordersTrends) {
+      if (p.value > maxOrderVal) maxOrderVal = p.value;
+    }
+    maxOrderVal = (maxOrderVal * 1.25).ceilToDouble();
+    if (maxOrderVal < 5) maxOrderVal = 5.0;
+
+    double maxRevVal = 1000.0;
+    for (final p in revenueTrends) {
+      if (p.value > maxRevVal) maxRevVal = p.value;
+    }
+    maxRevVal = (maxRevVal * 1.25).ceilToDouble();
+    if (maxRevVal < 1000) maxRevVal = 1000.0;
+
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
     final gridPaint = Paint()
       ..color = const Color(0xFFF1F5F9)
       ..strokeWidth = 1.0;
 
+    // Y Axis (4 intervals)
     for (int i = 0; i <= 4; i++) {
       final y = topMargin + (chartHeight / 4) * i;
       canvas.drawLine(Offset(leftMargin, y), Offset(size.width - rightMargin, y), gridPaint);
 
-      // Left Axis (Orders: 40, 30, 20, 10, 0)
-      final orderVal = (40 - (i * 10)).toString();
+      // Left Axis (Orders)
+      final orderVal = ((maxOrderVal * (4 - i)) / 4).round().toString();
       textPainter.text = TextSpan(
         text: orderVal,
         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9, fontWeight: FontWeight.w600),
@@ -2707,100 +3719,98 @@ class _ComboTrendChartPainter extends CustomPainter {
       textPainter.layout();
       textPainter.paint(canvas, Offset(leftMargin - textPainter.width - 6, y - textPainter.height / 2));
 
-      // Right Axis (Revenue: 20K, 15K, 10K, 5K, 0)
-      final revVal = i == 4 ? '0' : '${20 - (i * 5)}K';
+      // Right Axis (Revenue)
+      final revAmount = ((maxRevVal * (4 - i)) / 4);
+      final revStr = i == 4 ? '₹0' : '₹${(revAmount / 1000).toStringAsFixed(1)}K';
       textPainter.text = TextSpan(
-        text: revVal,
+        text: revStr,
         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9, fontWeight: FontWeight.w600),
       );
       textPainter.layout();
       textPainter.paint(canvas, Offset(size.width - rightMargin + 6, y - textPainter.height / 2));
     }
 
-    // X Axis Labels (Dates)
-    final dates = ['Sep 1', 'Sep 5', 'Sep 10', 'Sep 15', 'Sep 20', 'Sep 25', 'Sep 30'];
-    final numPoints = 25; // 25 day data points
-    final dx = chartWidth / (numPoints - 1);
+    final pointsCount = ordersTrends.length;
+    if (pointsCount == 0) return;
 
-    for (int i = 0; i < dates.length; i++) {
-      final x = leftMargin + (chartWidth / (dates.length - 1)) * i;
+    final dx = pointsCount > 1 ? chartWidth / (pointsCount - 1) : chartWidth / 2;
+
+    // X Axis Labels (Dates from real points)
+    for (int i = 0; i < pointsCount; i++) {
+      final x = pointsCount > 1 ? leftMargin + (i * dx) : leftMargin + dx;
       textPainter.text = TextSpan(
-        text: dates[i],
+        text: ordersTrends[i].label,
         style: const TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.w600),
       );
       textPainter.layout();
       textPainter.paint(canvas, Offset(x - textPainter.width / 2, size.height - bottomMargin + 10));
     }
 
-    // Sample Orders Volumes (Bars)
-    final barOrders = [
-      8, 12, 10, 14, 15, 11, 16, 18, 13, 20, 24, 22, 38, 26, 28, 20, 24, 22, 29, 32, 27, 30, 31, 35, 36
-    ];
-
+    // Orders Volumes (Bars)
     final barPaint = Paint()
-      ..color = const Color(0xFFFECDD3) // Soft pinkish coral
+      ..color = const Color(0xFFFECDD3)
       ..style = PaintingStyle.fill;
 
-    const barWidth = 6.5;
-    for (int i = 0; i < barOrders.length; i++) {
-      final x = leftMargin + (i * dx);
-      final height = (barOrders[i] / 40.0) * chartHeight;
-      final y = topMargin + chartHeight - height;
-
-      final rrect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(x - barWidth / 2, y, barWidth, height),
-        const Radius.circular(3),
-      );
-      canvas.drawRRect(rrect, barPaint);
-    }
-
-    // Revenue Trajectory Line (Spline Curve with Circle Nodes)
-    final revenue = [
-      4.2, 5.0, 5.5, 7.8, 8.2, 9.1, 8.4, 9.8, 8.6, 11.2, 12.8, 11.9, 13.5, 12.6, 13.0, 12.8, 15.2, 14.6, 14.1, 16.5, 15.0, 14.2, 14.8, 16.2, 18.5
-    ]; // in Thousands (0 to 20k)
-
-    final linePath = Path();
-    final nodePoints = <Offset>[];
-
-    for (int i = 0; i < revenue.length; i++) {
-      final x = leftMargin + (i * dx);
-      final normalized = revenue[i] / 20.0;
-      final y = topMargin + chartHeight - (normalized * chartHeight);
-      nodePoints.add(Offset(x, y));
-
-      if (i == 0) {
-        linePath.moveTo(x, y);
-      } else {
-        final prev = nodePoints[i - 1];
-        final midX = (prev.dx + x) / 2;
-        linePath.cubicTo(midX, prev.dy, midX, y, x, y);
+    const barWidth = 10.0;
+    for (int i = 0; i < pointsCount; i++) {
+      final x = pointsCount > 1 ? leftMargin + (i * dx) : leftMargin + dx;
+      final val = ordersTrends[i].value;
+      if (val > 0) {
+        final height = (val / maxOrderVal) * chartHeight;
+        final y = topMargin + chartHeight - height;
+        final rrect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(x - barWidth / 2, y, barWidth, height),
+          const Radius.circular(3),
+        );
+        canvas.drawRRect(rrect, barPaint);
       }
     }
 
-    final strokePaint = Paint()
-      ..color = const Color(0xFF881337) // Deep Royal Crimson
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-    canvas.drawPath(linePath, strokePaint);
+    // Revenue Trajectory Line (from real revenueTrends)
+    final revCount = revenueTrends.length;
+    if (revCount > 0) {
+      final rdx = revCount > 1 ? chartWidth / (revCount - 1) : chartWidth / 2;
+      final linePath = Path();
+      final nodePoints = <Offset>[];
 
-    // Draw circular dots at key nodes
-    final dotFillPaint = Paint()..color = const Color(0xFF881337);
-    final dotBorderPaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
+      for (int i = 0; i < revCount; i++) {
+        final x = revCount > 1 ? leftMargin + (i * rdx) : leftMargin + rdx;
+        final normalized = (revenueTrends[i].value / maxRevVal).clamp(0.0, 1.0);
+        final y = topMargin + chartHeight - (normalized * chartHeight);
+        nodePoints.add(Offset(x, y));
 
-    for (int i = 0; i < nodePoints.length; i += 2) {
-      final pt = nodePoints[i];
-      canvas.drawCircle(pt, 3.5, dotFillPaint);
-      canvas.drawCircle(pt, 3.5, dotBorderPaint);
+        if (i == 0) {
+          linePath.moveTo(x, y);
+        } else {
+          final prev = nodePoints[i - 1];
+          final midX = (prev.dx + x) / 2;
+          linePath.cubicTo(midX, prev.dy, midX, y, x, y);
+        }
+      }
+
+      final strokePaint = Paint()
+        ..color = const Color(0xFF881337)
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..isAntiAlias = true;
+      canvas.drawPath(linePath, strokePaint);
+
+      final dotFillPaint = Paint()..color = const Color(0xFF881337);
+      final dotBorderPaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+
+      for (final pt in nodePoints) {
+        canvas.drawCircle(pt, 3.5, dotFillPaint);
+        canvas.drawCircle(pt, 3.5, dotBorderPaint);
+      }
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ComboTrendChartPainter oldDelegate) => true;
 }
 
 // ==========================================

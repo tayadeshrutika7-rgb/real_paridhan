@@ -1,3 +1,31 @@
+class DeliveryPenaltyItem {
+  final String orderId;
+  final String orderNumber;
+  final double amount;
+  final String reason;
+  final DateTime chargedAt;
+
+  const DeliveryPenaltyItem({
+    required this.orderId,
+    required this.orderNumber,
+    required this.amount,
+    required this.reason,
+    required this.chargedAt,
+  });
+
+  factory DeliveryPenaltyItem.fromMap(Map<String, dynamic> map) {
+    return DeliveryPenaltyItem(
+      orderId: map['order_id'] ?? '',
+      orderNumber: map['order_number'] ?? 'PRD-ORD',
+      amount: (map['amount'] as num?)?.toDouble() ?? 100.0,
+      reason: map['reason'] ?? 'Emergency Cancellation / Rejection',
+      chargedAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at']) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+}
+
 class DeliveryTripSummary {
   final String orderId;
   final String orderNumber;
@@ -43,34 +71,51 @@ class DeliveryEarningsModel {
   final double todayBaseEarnings;
   final double todayDistanceIncentive;
   final double todayTips;
+  final double todayPenalties;
+  final int penaltiesCount;
   final double todayCodCollected;
   final double pendingCodRemittance;
   final double totalDistanceTodayKm;
   final List<DeliveryTripSummary> trips;
+  final List<DeliveryPenaltyItem> penalties;
 
   const DeliveryEarningsModel({
     this.todayTripsCount = 0,
     this.todayBaseEarnings = 0.0,
     this.todayDistanceIncentive = 0.0,
     this.todayTips = 0.0,
+    this.todayPenalties = 0.0,
+    this.penaltiesCount = 0,
     this.todayCodCollected = 0.0,
     this.pendingCodRemittance = 0.0,
     this.totalDistanceTodayKm = 0.0,
     this.trips = const [],
+    this.penalties = const [],
   });
 
+  /// Gross earnings before penalties
   double get todayTotalEarnings =>
       todayBaseEarnings + todayDistanceIncentive + todayTips;
+
+  /// Net payout after deducting cancellation/emergency penalties
+  double get todayNetEarnings =>
+      (todayTotalEarnings - todayPenalties).clamp(0.0, double.infinity);
+
+  /// Unclamped net balance (can be negative if penalty exceeds earnings)
+  double get rawNetBalance => todayTotalEarnings - todayPenalties;
 
   DeliveryEarningsModel copyWith({
     int? todayTripsCount,
     double? todayBaseEarnings,
     double? todayDistanceIncentive,
     double? todayTips,
+    double? todayPenalties,
+    int? penaltiesCount,
     double? todayCodCollected,
     double? pendingCodRemittance,
     double? totalDistanceTodayKm,
     List<DeliveryTripSummary>? trips,
+    List<DeliveryPenaltyItem>? penalties,
   }) {
     return DeliveryEarningsModel(
       todayTripsCount: todayTripsCount ?? this.todayTripsCount,
@@ -78,12 +123,15 @@ class DeliveryEarningsModel {
       todayDistanceIncentive:
           todayDistanceIncentive ?? this.todayDistanceIncentive,
       todayTips: todayTips ?? this.todayTips,
+      todayPenalties: todayPenalties ?? this.todayPenalties,
+      penaltiesCount: penaltiesCount ?? this.penaltiesCount,
       todayCodCollected: todayCodCollected ?? this.todayCodCollected,
       pendingCodRemittance:
           pendingCodRemittance ?? this.pendingCodRemittance,
       totalDistanceTodayKm:
           totalDistanceTodayKm ?? this.totalDistanceTodayKm,
       trips: trips ?? this.trips,
+      penalties: penalties ?? this.penalties,
     );
   }
 }

@@ -30,7 +30,7 @@ void main() {
   group('Super Admin Control Center & Production Analytics Tests', () {
     test('AdminMetricsModel computes GMV, net platform earnings, and masked KYC data', () {
       const gmv = 200000.0;
-      const commissionRate = 10.0;
+      const commissionRate = 3.0;
       const commission = gmv * (commissionRate / 100);
       const adRevenue = 5000.0;
       const deliveryFee = 4000.0;
@@ -53,11 +53,11 @@ void main() {
       );
 
       expect(metrics.totalGmv, 200000.0);
-      expect(metrics.platformRevenue, 20000.0);
+      expect(metrics.platformRevenue, 6000.0);
       expect(metrics.grossSales, 200000.0);
-      expect(metrics.sellerEarnings, 178200.0);
+      expect(metrics.sellerEarnings, (200000.0 - 6000.0 - (2000.0 * 0.97)));
       expect(metrics.avgOrderValue, 200000.0 / 150);
-      expect(metrics.netPlatformEarnings, (20000.0 + 5000.0 + (4000.0 * 0.2) - (2000.0 * 0.10) - 4000.0));
+      expect(metrics.netPlatformEarnings, (6000.0 + 5000.0 + (4000.0 * 0.2) - (2000.0 * 0.03) - 4000.0));
 
       final kycItem = BoutiqueVerificationItem(
         id: 'k-1',
@@ -152,7 +152,7 @@ void main() {
       expect(find.textContaining('Super Admin Jaipur'), findsOneWidget);
       expect(find.text('Total Sales (GMV)'), findsOneWidget);
       expect(find.text('Platform Revenue'), findsOneWidget);
-      expect(find.text('Commission (10%)'), findsOneWidget);
+      expect(find.text('Commission (3%)'), findsOneWidget);
       expect(find.text('Total Orders'), findsWidgets);
       expect(find.text('Operational Summary'), findsOneWidget);
     });
